@@ -72,6 +72,33 @@
             color: #fff;
             font-weight: 600;
         }
+        .airport-selector {
+            display: flex;
+            justify-content: center;
+            gap: 8px;
+            margin-bottom: 25px;
+        }
+        .airport-btn {
+            background: rgba(255, 255, 255, 0.08);
+            border: 2px solid rgba(255, 255, 255, 0.15);
+            color: #aaa;
+            padding: 8px 16px;
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: 0.95rem;
+            font-weight: 600;
+            transition: all 0.2s;
+        }
+        .airport-btn:hover {
+            background: rgba(255, 255, 255, 0.12);
+            border-color: rgba(255, 255, 255, 0.3);
+            color: #fff;
+        }
+        .airport-btn.active {
+            background: linear-gradient(90deg, #00d4ff, #7c3aed);
+            border-color: transparent;
+            color: #fff;
+        }
         .refresh-info {
             text-align: center;
             color: #666;
@@ -179,8 +206,17 @@
     </style>
 </head>
 <body>
-    <h1>SFO Widebody Arrivals</h1>
+    <h1 id="page-title">SFO Widebody Arrivals</h1>
     <p class="subtitle">Live schedule from FlightRadar24</p>
+
+    <div class="airport-selector">
+        <button class="airport-btn active" data-airport="SFO">SFO</button>
+        <button class="airport-btn" data-airport="LAX">LAX</button>
+        <button class="airport-btn" data-airport="JFK">JFK</button>
+        <button class="airport-btn" data-airport="EWR">EWR</button>
+        <button class="airport-btn" data-airport="DFW">DFW</button>
+        <button class="airport-btn" data-airport="SAN">SAN</button>
+    </div>
 
     <div class="stats">
         <div class="stat">

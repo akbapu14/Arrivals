@@ -10,12 +10,13 @@ const WIDEBODY_TYPES = new Set([
 // State
 let allArrivals = [];
 let currentFilter = 'upcoming';
+let currentAirport = 'SFO';
 let lastRefreshTime = Date.now();
 const REFRESH_INTERVAL = 60; // seconds (schedule doesn't change fast)
 
 // Fetch schedule from server
 async function fetchSchedule() {
-    const response = await fetch('/api/schedule');
+    const response = await fetch(`/api/schedule?airport=${currentAirport}`);
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const data = await response.json();
     return data.arrivals || [];
@@ -215,6 +216,17 @@ document.querySelectorAll('.filter-btn').forEach(btn => {
         btn.classList.add('active');
         currentFilter = btn.dataset.filter;
         updateDisplay();
+    });
+});
+
+// Airport selector handlers
+document.querySelectorAll('.airport-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        document.querySelectorAll('.airport-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        currentAirport = btn.dataset.airport;
+        document.getElementById('page-title').textContent = `${currentAirport} Widebody Arrivals`;
+        refresh();
     });
 });
 

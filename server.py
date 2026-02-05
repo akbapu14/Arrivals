@@ -5,6 +5,7 @@ import http.server
 import json
 import urllib.request
 import urllib.error
+import urllib.parse
 import time
 
 PORT = 8080
@@ -18,10 +19,13 @@ HEADERS = {
 
 class Handler(http.server.SimpleHTTPRequestHandler):
     def do_GET(self):
-        if self.path == '/api/aircraft':
+        parsed = urllib.parse.urlparse(self.path)
+        if parsed.path == '/api/aircraft':
             self.proxy_aircraft()
-        elif self.path == '/api/schedule':
-            self.get_schedule()
+        elif parsed.path == '/api/schedule':
+            query = urllib.parse.parse_qs(parsed.query)
+            airport = query.get('airport', ['SFO'])[0]
+            self.get_schedule(airport)
         else:
             super().do_GET()
 
@@ -59,14 +63,14 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         except Exception as e:
             self.send_error(500, str(e))
 
-    def get_schedule(self):
-        """Fetch scheduled SFO arrivals from FlightRadar24."""
+    def get_schedule(self, airport='SFO'):
+        """Fetch scheduled arrivals from FlightRadar24."""
         timestamp = int(time.time())
         all_flights = []
 
         # Fetch multiple pages
         for page in range(1, 9):
-            url = f"https://api.flightradar24.com/common/v1/airport.json?code=SFO&plugin=schedule&plugin-setting%5Bschedule%5D%5Bmode%5D=arrivals&plugin-setting%5Bschedule%5D%5Btimestamp%5D={timestamp}&limit=100&page={page}"
+            url = f"https://api.flightradar24.com/common/v1/airport.json?code={airport}&plugin=schedule&plugin-setting%5Bschedule%5D%5Bmode%5D=arrivals&plugin-setting%5Bschedule%5D%5Btimestamp%5D={timestamp}&limit=100&page={page}"
             try:
                 req = urllib.request.Request(url, headers=HEADERS)
                 with urllib.request.urlopen(req, timeout=10) as response:
@@ -117,6 +121,6 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self.wfile.write(json.dumps(data).encode())
 
 if __name__ == '__main__':
-    print(f"Starting SFO Arrivals server on http://localhost:{PORT}")
+    print(f"Starting Widebody Arrivals server on http://localhost:{PORT}")
     print("Open http://localhost:8080 in your browser")
     http.server.HTTPServer(('', PORT), Handler).serve_forever()
