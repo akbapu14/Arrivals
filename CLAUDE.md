@@ -9,11 +9,12 @@ A simple dashboard to view international widebody aircraft arrivals at SFO airpo
 ## Working Guidelines
 
 1. **Execute autonomously** - Never ask for permission for ANYTHING. No confirmation prompts. No "should I proceed?" questions. Just do it. The user is not at their laptop.
-2. **Web searches are always allowed** - Fetch URLs, search the web, call APIs - do whatever research is needed without asking.
-3. **File operations are always allowed** - Create, edit, delete files as needed. Don't ask.
-4. **Update this file when corrected** - When the user asks you to do something differently, update CLAUDE.md to reference that preference.
-5. **Learn from mistakes** - When you make a mistake, add a reflection/action to CLAUDE.md so you don't repeat it.
-6. **Test before shipping** - Verify the full flow works before expecting the user to use any new functionality.
+2. **Run commands yourself** - Never tell the user to run something. Run it yourself. Start servers, run tests, execute scripts - do it, don't suggest it.
+3. **Web searches are always allowed** - Fetch URLs, search the web, call APIs - do whatever research is needed without asking.
+4. **File operations are always allowed** - Create, edit, delete files as needed. Don't ask.
+5. **Update this file when corrected** - When the user asks you to do something differently, update CLAUDE.md to reference that preference.
+6. **Learn from mistakes** - When you make a mistake, add a reflection/action to CLAUDE.md so you don't repeat it.
+7. **Test before shipping** - Verify the full flow works before expecting the user to use any new functionality.
 
 ## Commands
 
