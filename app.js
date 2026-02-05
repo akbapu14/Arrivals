@@ -380,7 +380,27 @@ function updateDisplay() {
             }
             return diff;
         }
-        // For other filters, sort by ETA (soonest first)
+        // For upcoming/all filters: prioritize by flight status
+        // 1. On approach (< 10,000 ft) - sorted by altitude (lowest first)
+        // 2. Live flights - sorted by ETA
+        // 3. Scheduled - sorted by ETA
+        const aApproach = isOnApproach(a);
+        const bApproach = isOnApproach(b);
+
+        if (aApproach && bApproach) {
+            // Both on approach - lowest altitude first (closest to landing)
+            return (a.altitude || 0) - (b.altitude || 0);
+        }
+        if (aApproach) return -1; // a comes first
+        if (bApproach) return 1;  // b comes first
+
+        // Then live flights
+        const aLive = a.live;
+        const bLive = b.live;
+        if (aLive && !bLive) return -1;
+        if (!aLive && bLive) return 1;
+
+        // Finally sort by ETA
         return (a.eta || Infinity) - (b.eta || Infinity);
     });
 
