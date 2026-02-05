@@ -18,6 +18,50 @@ let refreshTimer = null;
 const NORMAL_INTERVAL = 60; // seconds
 const APPROACH_INTERVAL = 1; // seconds when aircraft on approach
 const APPROACH_ALTITUDE = 30000; // feet
+const LANDED_CACHE_HOURS = 12;
+
+// Cache for landed flights (persisted to localStorage)
+function getLandedCache() {
+    try {
+        return JSON.parse(localStorage.getItem('landedFlights') || '{}');
+    } catch {
+        return {};
+    }
+}
+
+function saveLandedCache(cache) {
+    localStorage.setItem('landedFlights', JSON.stringify(cache));
+}
+
+function cacheLandedFlight(flight, airport) {
+    const cache = getLandedCache();
+    const key = `${airport}-${flight.flight}-${flight.origin}`;
+    if (!cache[key]) {
+        cache[key] = {
+            ...flight,
+            cachedAt: Date.now(),
+            airport: airport
+        };
+        saveLandedCache(cache);
+    }
+}
+
+function getCachedLandedFlights(airport) {
+    const cache = getLandedCache();
+    const cutoff = Date.now() - (LANDED_CACHE_HOURS * 60 * 60 * 1000);
+    const validFlights = [];
+
+    for (const [key, flight] of Object.entries(cache)) {
+        if (flight.airport === airport && flight.cachedAt > cutoff) {
+            validFlights.push(flight);
+        } else if (flight.cachedAt <= cutoff) {
+            delete cache[key]; // Clean up old entries
+        }
+    }
+
+    saveLandedCache(cache);
+    return validFlights;
+}
 
 // Fetch schedule from server
 async function fetchSchedule() {
@@ -288,7 +332,29 @@ async function refresh() {
 
     setLoading(true);
     try {
-        allArrivals = await fetchSchedule();
+        const apiArrivals = await fetchSchedule();
+
+        // Cache any landed widebody flights
+        apiArrivals.forEach(flight => {
+            if (WIDEBODY_TYPES.has(flight.type) && isLanded(flight)) {
+                cacheLandedFlight(flight, currentAirport);
+            }
+        });
+
+        // Merge API data with cached landed flights
+        const cachedLanded = getCachedLandedFlights(currentAirport);
+        const apiFlightKeys = new Set(apiArrivals.map(f => `${f.flight}-${f.origin}`));
+
+        // Add cached flights that aren't in API response
+        const mergedArrivals = [...apiArrivals];
+        cachedLanded.forEach(cached => {
+            const key = `${cached.flight}-${cached.origin}`;
+            if (!apiFlightKeys.has(key)) {
+                mergedArrivals.push(cached);
+            }
+        });
+
+        allArrivals = mergedArrivals;
         updateDisplay();
         lastRefreshTime = Date.now();
         setStatus(true);
