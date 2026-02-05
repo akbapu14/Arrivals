@@ -13,7 +13,11 @@ let currentFilter = 'upcoming';
 let currentAirport = 'SFO';
 let lastRefreshTime = Date.now();
 let isLoading = false;
-const REFRESH_INTERVAL = 60; // seconds (schedule doesn't change fast)
+let approachMode = false;
+let refreshTimer = null;
+const NORMAL_INTERVAL = 60; // seconds
+const APPROACH_INTERVAL = 1; // seconds when aircraft on approach
+const APPROACH_ALTITUDE = 30000; // feet
 
 // Fetch schedule from server
 async function fetchSchedule() {
@@ -192,12 +196,24 @@ function updateDisplay() {
     }
 }
 
+// Check if any widebody is on approach (under 30,000 ft)
+function hasApproachingAircraft() {
+    const widebodies = filterWidebodies(allArrivals);
+    return widebodies.some(a => a.live && a.altitude && a.altitude < APPROACH_ALTITUDE);
+}
+
+// Get current refresh interval
+function getRefreshInterval() {
+    return approachMode ? APPROACH_INTERVAL : NORMAL_INTERVAL;
+}
+
 // Update countdown every second
 function tick() {
     const countdown = document.getElementById('countdown');
     const elapsed = Math.floor((Date.now() - lastRefreshTime) / 1000);
-    const remaining = Math.max(0, REFRESH_INTERVAL - elapsed);
-    countdown.textContent = remaining;
+    const interval = getRefreshInterval();
+    const remaining = Math.max(0, interval - elapsed);
+    countdown.textContent = approachMode ? `${remaining} (LIVE)` : remaining;
 
     // Update all ETA countdowns
     document.querySelectorAll('.eta-countdown').forEach(el => {
@@ -219,8 +235,25 @@ function setLoading(loading) {
     }
 }
 
+// Schedule next refresh based on approach mode
+function scheduleNextRefresh() {
+    if (refreshTimer) clearTimeout(refreshTimer);
+
+    const wasApproachMode = approachMode;
+    approachMode = hasApproachingAircraft();
+
+    if (approachMode !== wasApproachMode) {
+        console.log(approachMode ? 'Approach mode: ON (aircraft < 30,000 ft)' : 'Approach mode: OFF');
+    }
+
+    const interval = getRefreshInterval();
+    refreshTimer = setTimeout(refresh, interval * 1000);
+}
+
 // Main refresh
 async function refresh() {
+    if (isLoading) return; // Skip if already loading
+
     setLoading(true);
     try {
         allArrivals = await fetchSchedule();
@@ -236,6 +269,7 @@ async function refresh() {
         `;
     } finally {
         setLoading(false);
+        scheduleNextRefresh();
     }
 }
 
@@ -284,5 +318,4 @@ customInput.addEventListener('focus', () => {
 
 // Start
 refresh();
-setInterval(refresh, REFRESH_INTERVAL * 1000);
 setInterval(tick, 1000);
