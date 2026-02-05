@@ -186,9 +186,32 @@ function updateDisplay() {
     const nextFlight = upcoming.find(a => a.eta);
     nextEta.textContent = nextFlight ? formatETA(nextFlight.eta) : '-';
 
-    // Apply filter and sort by ETA
+    // Apply filter and sort
     const filtered = applyFilter(widebodies);
-    const sorted = [...filtered].sort((a, b) => (a.eta || Infinity) - (b.eta || Infinity));
+    const sorted = [...filtered].sort((a, b) => {
+        // For landed flights, sort by landing time (most recent first)
+        if (currentFilter === 'landed') {
+            const getMinutes = (status) => {
+                const match = status?.match(/landed\s+(\d{1,2}):(\d{2})/i);
+                if (!match) return 0;
+                let hours = parseInt(match[1]);
+                const mins = parseInt(match[2]);
+                // Convert to minutes since midnight, handling day boundary
+                return hours * 60 + mins;
+            };
+            const aTime = getMinutes(a.status);
+            const bTime = getMinutes(b.status);
+            // Most recent first (descending), but handle day wraparound
+            // If times are far apart (>12 hours diff), earlier time is actually from today
+            const diff = bTime - aTime;
+            if (Math.abs(diff) > 720) { // 12 hours in minutes
+                return -diff; // Flip the sort
+            }
+            return diff;
+        }
+        // For other filters, sort by ETA (soonest first)
+        return (a.eta || Infinity) - (b.eta || Infinity);
+    });
 
     if (sorted.length === 0) {
         let msg = 'No widebody arrivals';
