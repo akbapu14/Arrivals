@@ -55,6 +55,7 @@ const APPROACH_ALTITUDE = 30000; // feet
 
 // Airport coordinates for map centering
 const AIRPORT_COORDS = {
+    // US Major Hubs
     'SFO': [37.6213, -122.3790],
     'LAX': [33.9425, -118.4081],
     'JFK': [40.6413, -73.7781],
@@ -67,12 +68,65 @@ const AIRPORT_COORDS = {
     'BOS': [42.3656, -71.0096],
     'MIA': [25.7959, -80.2870],
     'DEN': [39.8561, -104.6737],
+    'IAH': [29.9902, -95.3368],
+    'PHX': [33.4373, -112.0078],
+    'LAS': [36.0840, -115.1537],
+    'MCO': [28.4312, -81.3081],
+    'IAD': [38.9531, -77.4565],
+    'DCA': [38.8512, -77.0402],
+    'MSP': [44.8848, -93.2223],
+    'DTW': [42.2162, -83.3554],
+    'PHL': [39.8729, -75.2437],
+    'CLT': [35.2140, -80.9431],
+    'SLC': [40.7884, -111.9778],
+    'PDX': [45.5898, -122.5951],
+    'OAK': [37.7126, -122.2197],
+    'SJC': [37.3639, -121.9289],
+    // International
+    'LHR': [51.4700, -0.4543],
+    'CDG': [49.0097, 2.5479],
+    'FRA': [50.0379, 8.5622],
+    'AMS': [52.3105, 4.7683],
+    'HND': [35.5494, 139.7798],
+    'NRT': [35.7720, 140.3929],
+    'ICN': [37.4602, 126.4407],
+    'PVG': [31.1443, 121.8083],
+    'HKG': [22.3080, 113.9185],
+    'SIN': [1.3644, 103.9915],
+    'SYD': [-33.9399, 151.1753],
+    'MEL': [-37.6690, 144.8410],
+    'DXB': [25.2532, 55.3657],
+    'DOH': [25.2609, 51.6138],
+    'MEX': [19.4363, -99.0721],
+    'GRU': [-23.4356, -46.4731],
+    'YYZ': [43.6777, -79.6248],
+    'YVR': [49.1967, -123.1815],
 };
+
+// Retry with exponential backoff
+async function fetchWithRetry(url, maxRetries = 3) {
+    let lastError;
+    for (let i = 0; i < maxRetries; i++) {
+        try {
+            const response = await fetch(url);
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            return response;
+        } catch (error) {
+            lastError = error;
+            if (i < maxRetries - 1) {
+                // Exponential backoff: 1s, 2s, 4s
+                const delay = Math.pow(2, i) * 1000;
+                console.log(`Retry ${i + 1}/${maxRetries - 1} after ${delay}ms...`);
+                await new Promise(resolve => setTimeout(resolve, delay));
+            }
+        }
+    }
+    throw lastError;
+}
 
 // Fetch schedule from server
 async function fetchSchedule() {
-    const response = await fetch(`/api/schedule?airport=${currentAirport}`);
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const response = await fetchWithRetry(`/api/schedule?airport=${currentAirport}`);
     const data = await response.json();
     return data.arrivals || [];
 }
@@ -322,6 +376,45 @@ function setLoading(loading) {
     isLoading = loading;
 }
 
+// Generate skeleton loading cards
+function showSkeletonLoading() {
+    const container = document.getElementById('flights-container');
+    const skeletonCount = 6;
+    let html = '<div class="skeleton-grid">';
+
+    for (let i = 0; i < skeletonCount; i++) {
+        html += `
+            <div class="skeleton-card">
+                <div class="skeleton-header">
+                    <div class="skeleton-line skeleton-flight"></div>
+                    <div class="skeleton-line skeleton-type"></div>
+                </div>
+                <div class="skeleton-details">
+                    <div class="skeleton-detail">
+                        <div class="skeleton-line skeleton-label"></div>
+                        <div class="skeleton-line skeleton-value"></div>
+                    </div>
+                    <div class="skeleton-detail">
+                        <div class="skeleton-line skeleton-label"></div>
+                        <div class="skeleton-line skeleton-value"></div>
+                    </div>
+                    <div class="skeleton-detail">
+                        <div class="skeleton-line skeleton-label"></div>
+                        <div class="skeleton-line skeleton-value"></div>
+                    </div>
+                    <div class="skeleton-detail">
+                        <div class="skeleton-line skeleton-label"></div>
+                        <div class="skeleton-line skeleton-value"></div>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
+    html += '</div>';
+    container.innerHTML = html;
+}
+
 // Update status indicator
 function setStatus(isLive) {
     const indicator = document.getElementById('status-indicator');
@@ -351,6 +444,12 @@ async function refresh() {
     if (isLoading) return; // Skip if already loading
 
     setLoading(true);
+
+    // Show skeleton loading if this is a fresh load (no data yet)
+    if (allArrivals.length === 0) {
+        showSkeletonLoading();
+    }
+
     try {
         allArrivals = await fetchSchedule();
         updateDisplay();
@@ -406,6 +505,8 @@ function selectAirport(airport) {
         updateAirportMarker();
     }
 
+    // Clear arrivals to trigger skeleton loading
+    allArrivals = [];
     refresh();
     fetchWeather();
 }

@@ -645,6 +645,85 @@
 
         @keyframes spin { to { transform: rotate(360deg); } }
 
+        /* Skeleton loading animation */
+        .skeleton-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+            gap: 16px;
+        }
+
+        .skeleton-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 18px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .skeleton-card::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(
+                90deg,
+                transparent,
+                rgba(255, 255, 255, 0.03),
+                transparent
+            );
+            animation: shimmer 1.5s infinite;
+        }
+
+        @keyframes shimmer {
+            100% { left: 100%; }
+        }
+
+        .skeleton-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 14px;
+        }
+
+        .skeleton-line {
+            background: var(--bg-elevated);
+            border-radius: 4px;
+        }
+
+        .skeleton-flight {
+            width: 80px;
+            height: 24px;
+        }
+
+        .skeleton-type {
+            width: 60px;
+            height: 20px;
+        }
+
+        .skeleton-details {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+
+        .skeleton-detail {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .skeleton-label {
+            width: 40px;
+            height: 10px;
+        }
+
+        .skeleton-value {
+            width: 70px;
+            height: 18px;
+        }
+
         /* Modal */
         .modal-overlay {
             display: none;
