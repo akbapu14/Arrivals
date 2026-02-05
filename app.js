@@ -966,16 +966,40 @@ function updateMapMarkers() {
     liveFlights.forEach(flight => {
         const isWidebody = WIDEBODY_TYPES.has(flight.type);
         const icon = createPlaneIcon(flight.heading, isWidebody);
+        const onApproach = isOnApproach(flight);
 
         const marker = L.marker([flight.lat, flight.lon], { icon })
             .addTo(map);
 
+        // Calculate distance for popup
+        const destCoords = AIRPORT_COORDS[currentAirport];
+        let distanceStr = '-';
+        let ttdStr = '';
+        if (destCoords) {
+            const distance = calculateDistance(flight.lat, flight.lon, destCoords[0], destCoords[1]);
+            distanceStr = formatDistance(distance);
+            if (distance < 200) {
+                const ttd = estimateTimeToTouchdown(distance, flight.altitude);
+                if (ttd) {
+                    ttdStr = `<div class="map-popup-detail">Est. Touch: <span class="popup-highlight">${ttd}</span></div>`;
+                }
+            }
+        }
+
+        const statusBadge = onApproach
+            ? '<span class="map-popup-badge approach">ON APPROACH</span>'
+            : '<span class="map-popup-badge live">LIVE</span>';
+
         const popupContent = `
-            <div class="map-popup-title">${flight.flight}</div>
+            <div class="map-popup-header">
+                <div class="map-popup-title">${flight.flight}</div>
+                ${statusBadge}
+            </div>
             <div class="map-popup-detail">Aircraft: <span>${flight.typeName || flight.type}</span></div>
             <div class="map-popup-detail">From: <span>${flight.origin}</span></div>
+            <div class="map-popup-detail">Distance: <span>${distanceStr}</span></div>
             <div class="map-popup-detail">Altitude: <span>${formatAltitude(flight.altitude)}</span></div>
-            <div class="map-popup-detail">ETA: <span>${formatETA(flight.eta)}</span></div>
+            ${ttdStr}
             ${flight.flightId ? `<button class="map-popup-btn" onclick="openFlightModal('${flight.flightId}', '${flight.flight}')">View Details</button>` : ''}
         `;
 
