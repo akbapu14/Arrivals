@@ -125,9 +125,18 @@
             background: linear-gradient(90deg, #00d4ff, #7c3aed);
             border-color: transparent;
         }
-        .flights-grid.loading-state {
-            opacity: 0.5;
-            pointer-events: none;
+        .loading-dot {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            background: #00d4ff;
+            border-radius: 50%;
+            margin-left: 6px;
+            animation: pulse 0.8s ease-in-out infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.5; transform: scale(0.8); }
         }
         .altitude {
             color: #22c55e;
@@ -362,12 +371,11 @@
 
     <div class="filters">
         <button class="filter-btn active" data-filter="upcoming">Upcoming</button>
-        <button class="filter-btn" data-filter="airborne">Airborne Now</button>
         <button class="filter-btn" data-filter="landed">Recently Landed</button>
         <button class="filter-btn" data-filter="all">All</button>
     </div>
 
-    <p class="refresh-info">Last updated: <span id="last-update">-</span> | Next refresh in <span id="countdown">--</span>s</p>
+    <p class="refresh-info">Last updated: <span id="last-update">-</span> <span id="loading-indicator" class="loading-dot" style="display:none;"></span> | Next refresh in <span id="countdown">--</span>s</p>
 
     <div id="flights-container" class="flights-grid">
         <div class="loading">

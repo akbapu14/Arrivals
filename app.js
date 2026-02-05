@@ -151,8 +151,6 @@ function applyFilter(arrivals) {
     switch (currentFilter) {
         case 'upcoming':
             return arrivals.filter(isUpcoming);
-        case 'airborne':
-            return arrivals.filter(isAirborne);
         case 'landed':
             return arrivals.filter(isLanded);
         default:
@@ -224,14 +222,12 @@ function tick() {
     });
 }
 
-// Show loading state
+// Show loading state (subtle indicator, no overlay)
 function setLoading(loading) {
     isLoading = loading;
-    const container = document.getElementById('flights-container');
-    if (loading) {
-        container.classList.add('loading-state');
-    } else {
-        container.classList.remove('loading-state');
+    const indicator = document.getElementById('loading-indicator');
+    if (indicator) {
+        indicator.style.display = loading ? 'inline' : 'none';
     }
 }
 
