@@ -609,6 +609,19 @@
             letter-spacing: -0.01em;
         }
 
+        .flight-number.copyable {
+            cursor: pointer;
+            transition: color 0.15s ease;
+        }
+
+        .flight-number.copyable:hover {
+            color: var(--cyan);
+        }
+
+        .flight-number.copyable:active {
+            transform: scale(0.98);
+        }
+
         .aircraft-type {
             font-family: var(--font-mono);
             background: var(--bg-elevated);
@@ -1050,6 +1063,30 @@
         .help-about .help-muted {
             color: var(--text-muted);
             font-size: 0.75rem;
+        }
+
+        /* Toast notification */
+        .toast {
+            position: fixed;
+            bottom: 24px;
+            left: 50%;
+            transform: translateX(-50%) translateY(20px);
+            background: var(--bg-elevated);
+            border: 1px solid var(--border);
+            color: var(--text-primary);
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-family: var(--font-mono);
+            font-size: 0.85rem;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+            opacity: 0;
+            transition: all 0.3s ease;
+            z-index: 2000;
+        }
+
+        .toast.show {
+            opacity: 1;
+            transform: translateX(-50%) translateY(0);
         }
 
         /* Map Markers */

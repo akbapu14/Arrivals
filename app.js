@@ -247,6 +247,38 @@ function isOnApproach(arrival) {
     return arrival.live && arrival.altitude && arrival.altitude < 10000;
 }
 
+// Copy text to clipboard and show feedback
+async function copyToClipboard(text, event) {
+    event?.stopPropagation();
+    try {
+        await navigator.clipboard.writeText(text);
+        showToast(`Copied: ${text}`);
+    } catch (err) {
+        console.error('Copy failed:', err);
+    }
+}
+
+// Show toast notification
+function showToast(message) {
+    // Remove existing toast
+    const existing = document.querySelector('.toast');
+    if (existing) existing.remove();
+
+    const toast = document.createElement('div');
+    toast.className = 'toast';
+    toast.textContent = message;
+    document.body.appendChild(toast);
+
+    // Trigger animation
+    setTimeout(() => toast.classList.add('show'), 10);
+
+    // Remove after delay
+    setTimeout(() => {
+        toast.classList.remove('show');
+        setTimeout(() => toast.remove(), 300);
+    }, 2000);
+}
+
 // Render flight card
 function renderFlightCard(arrival) {
     const landed = isLanded(arrival);
@@ -322,7 +354,7 @@ function renderFlightCard(arrival) {
         <div class="${cardClass}" ${clickHandler}>
             <div class="flight-header">
                 <div>
-                    <span class="flight-number">${arrival.flight}</span>
+                    <span class="flight-number copyable" onclick="copyToClipboard('${arrival.flight}', event)" title="Click to copy">${arrival.flight}</span>
                     ${statusBadgeHtml}
                 </div>
                 <span class="aircraft-type">${typeName}</span>
