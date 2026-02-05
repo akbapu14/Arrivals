@@ -236,6 +236,99 @@
             margin: 0 auto 20px;
         }
         @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* Mobile styles */
+        @media (max-width: 768px) {
+            body {
+                padding: 12px;
+            }
+            h1 {
+                font-size: 1.5rem;
+                margin-bottom: 6px;
+            }
+            .subtitle {
+                margin-bottom: 16px;
+                font-size: 0.8rem;
+            }
+            .airport-selector {
+                flex-wrap: wrap;
+                gap: 6px;
+                margin-bottom: 16px;
+            }
+            .airport-btn {
+                padding: 6px 12px;
+                font-size: 0.85rem;
+            }
+            .custom-airport-input {
+                width: 80px;
+                padding: 6px 10px;
+                font-size: 0.85rem;
+            }
+            .stats {
+                gap: 20px;
+                margin-bottom: 16px;
+            }
+            .stat-value {
+                font-size: 1.8rem;
+            }
+            .stat-label {
+                font-size: 0.7rem;
+            }
+            .filters {
+                flex-wrap: wrap;
+                gap: 6px;
+                margin-bottom: 12px;
+            }
+            .filter-btn {
+                padding: 8px 12px;
+                font-size: 0.8rem;
+            }
+            .refresh-info {
+                margin-bottom: 12px;
+                font-size: 0.75rem;
+            }
+            .flights-grid {
+                grid-template-columns: 1fr;
+                gap: 12px;
+            }
+            .flight-card {
+                padding: 14px;
+                border-radius: 12px;
+            }
+            .flight-header {
+                margin-bottom: 10px;
+            }
+            .flight-number {
+                font-size: 1.25rem;
+            }
+            .aircraft-type {
+                padding: 3px 10px;
+                font-size: 0.75rem;
+            }
+            .flight-details {
+                gap: 8px;
+            }
+            .detail-value {
+                font-size: 1rem;
+            }
+            .detail-label {
+                font-size: 0.7rem;
+            }
+        }
+
+        /* Extra small screens */
+        @media (max-width: 380px) {
+            .stats {
+                gap: 12px;
+            }
+            .stat-value {
+                font-size: 1.5rem;
+            }
+            .filter-btn {
+                padding: 6px 10px;
+                font-size: 0.75rem;
+            }
+        }
     </style>
 </head>
 <body>
