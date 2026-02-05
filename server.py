@@ -12,6 +12,10 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 PORT = 8080
 BOUNDS = "38.5,36.5,-123.5,-121"
 
+# Cache for flight positions (flight_id -> {data, timestamp})
+position_cache = {}
+CACHE_TTL = 30  # seconds
+
 WIDEBODY_TYPES = {
     'A332', 'A333', 'A338', 'A339', 'A342', 'A343', 'A345', 'A346',
     'A359', 'A35K', 'A380', 'A388',
@@ -30,16 +34,26 @@ def get_flight_position(flight_id):
     """Fetch live flight position including altitude, lat/lon, heading."""
     if not flight_id:
         return None
+
+    now = time.time()
+
+    # Check cache first
+    if flight_id in position_cache:
+        cached = position_cache[flight_id]
+        if now - cached['timestamp'] < CACHE_TTL:
+            return cached['data']
+
     try:
         url = f"https://data-live.flightradar24.com/clickhandler/?flight={flight_id}"
         req = urllib.request.Request(url, headers=HEADERS)
-        with urllib.request.urlopen(req, timeout=3) as response:
+        with urllib.request.urlopen(req, timeout=5) as response:
             data = json.loads(response.read())
             trail = data.get('trail', [])
             if trail and len(trail) > 0:
                 latest = trail[0]
+                result = None
                 if isinstance(latest, dict):
-                    return {
+                    result = {
                         'alt': latest.get('alt'),
                         'lat': latest.get('lat'),
                         'lon': latest.get('lng'),
@@ -47,15 +61,23 @@ def get_flight_position(flight_id):
                         'speed': latest.get('spd')
                     }
                 elif isinstance(latest, list) and len(latest) >= 5:
-                    return {
+                    result = {
                         'alt': latest[2],
                         'lat': latest[0],
                         'lon': latest[1],
                         'heading': latest[4] if len(latest) > 4 else None,
                         'speed': latest[3] if len(latest) > 3 else None
                     }
+                if result:
+                    position_cache[flight_id] = {'data': result, 'timestamp': now}
+                    return result
     except:
         pass
+
+    # Return stale cache if fresh fetch failed
+    if flight_id in position_cache:
+        return position_cache[flight_id]['data']
+
     return None
 
 
