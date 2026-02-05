@@ -20,6 +20,7 @@ let currentView = 'list'; // 'list' or 'map'
 let map = null;
 let mapMarkers = [];
 let airportMarker = null;
+let miniMap = null; // Track mini map instance for cleanup
 const NORMAL_INTERVAL = 60; // seconds
 const APPROACH_INTERVAL = 1; // seconds when aircraft on approach
 const APPROACH_ALTITUDE = 30000; // feet
@@ -297,7 +298,7 @@ function setLoading(loading) {
 function setStatus(isLive) {
     const indicator = document.getElementById('status-indicator');
     if (indicator) {
-        indicator.textContent = isLive ? 'LIVE' : 'OFFLINE';
+        indicator.textContent = isLive ? 'Live' : 'Offline';
         indicator.className = 'status-indicator ' + (isLive ? 'live' : 'offline');
     }
 }
@@ -354,9 +355,8 @@ document.querySelectorAll('.filter-btn').forEach(btn => {
 
 // Update page title based on current state
 function updateTitle() {
-    const typeLabel = showAllAircraft ? 'Arrivals' : 'Widebody Arrivals';
-    document.getElementById('page-title').textContent = `${currentAirport} ${typeLabel}`;
-    document.title = `${currentAirport} ${typeLabel}`;
+    document.getElementById('page-title').innerHTML = `<span class="airport-code">${currentAirport}</span> Arrivals`;
+    document.title = `AvGeek · ${currentAirport}`;
     document.getElementById('stat-label-total').textContent = showAllAircraft ? 'Aircraft Today' : 'Widebodies Today';
 }
 
@@ -368,7 +368,7 @@ function selectAirport(airport) {
     // Update map center if in map view
     if (map) {
         const coords = AIRPORT_COORDS[currentAirport] || [37.6213, -122.3790];
-        map.setView(coords, 8);
+        map.setView(coords, 6);
         updateAirportMarker();
     }
 
@@ -448,6 +448,12 @@ function closeFlightModal(event) {
     const modal = document.getElementById('flight-modal');
     modal.classList.remove('active');
     document.body.style.overflow = '';
+
+    // Clean up mini map to prevent memory leaks
+    if (miniMap) {
+        miniMap.remove();
+        miniMap = null;
+    }
 }
 
 function formatDuration(departureTs, arrivalTs) {
@@ -585,7 +591,7 @@ function initMap() {
     if (map) return; // Already initialized
 
     const coords = AIRPORT_COORDS[currentAirport] || [37.6213, -122.3790];
-    map = L.map('map-container').setView(coords, 8);
+    map = L.map('map-container').setView(coords, 6);
 
     L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
         attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/">CARTO</a>',
@@ -617,7 +623,8 @@ function updateAirportMarker() {
 }
 
 function createPlaneIcon(heading, isWidebody) {
-    const rotation = heading || 0;
+    // ✈ emoji points East (90°), so subtract 90 to align with heading (0° = North)
+    const rotation = (heading || 0) - 90;
     const colorClass = isWidebody ? 'widebody' : 'narrowbody';
     return L.divIcon({
         className: `plane-marker ${colorClass}`,
@@ -630,8 +637,12 @@ function createPlaneIcon(heading, isWidebody) {
 function updateMapMarkers() {
     if (!map) return;
 
-    // Clear existing markers
-    mapMarkers.forEach(m => map.removeLayer(m));
+    // Clear existing markers properly to free memory
+    mapMarkers.forEach(m => {
+        m.closePopup();
+        m.unbindPopup();
+        map.removeLayer(m);
+    });
     mapMarkers = [];
 
     const aircraft = filterAircraft(allArrivals);
@@ -671,9 +682,9 @@ function setMapView(view) {
         flightsContainer.classList.add('hidden');
         initMap();
         updateMapMarkers();
-        // Center on airport
+        // Center on airport with wider zoom
         const coords = AIRPORT_COORDS[currentAirport] || [37.6213, -122.3790];
-        map.setView(coords, 8);
+        map.setView(coords, 6);
         setTimeout(() => map.invalidateSize(), 100);
     } else {
         mapContainer.classList.remove('active');
@@ -686,7 +697,13 @@ function initMiniMap(data) {
     const miniMapEl = document.getElementById('modal-mini-map');
     if (!miniMapEl || !data.trail || data.trail.length === 0) return;
 
-    const miniMap = L.map('modal-mini-map', {
+    // Clean up previous mini map instance
+    if (miniMap) {
+        miniMap.remove();
+        miniMap = null;
+    }
+
+    miniMap = L.map('modal-mini-map', {
         zoomControl: false,
         attributionControl: false
     });
@@ -695,15 +712,15 @@ function initMiniMap(data) {
         maxZoom: 19
     }).addTo(miniMap);
 
-    // Draw flight trail
+    // Draw flight trail - filter out invalid coordinates
     const trailCoords = data.trail
-        .filter(p => p && p[0] && p[1])
+        .filter(p => p && Array.isArray(p) && p[0] != null && p[1] != null && !isNaN(p[0]) && !isNaN(p[1]))
         .map(p => [p[0], p[1]]);
 
-    if (trailCoords.length > 0) {
+    if (trailCoords.length > 1) {
         const polyline = L.polyline(trailCoords, {
-            color: '#00d4ff',
-            weight: 2,
+            color: '#06b6d4',
+            weight: 3,
             opacity: 0.8
         }).addTo(miniMap);
 
@@ -726,7 +743,20 @@ function initMiniMap(data) {
             }).addTo(miniMap);
         }
 
-        miniMap.fitBounds(polyline.getBounds(), { padding: [20, 20] });
+        // Fit bounds with padding
+        try {
+            miniMap.fitBounds(polyline.getBounds(), { padding: [30, 30] });
+        } catch (e) {
+            // Fallback to current position if bounds fail
+            if (data.lat && data.lon) {
+                miniMap.setView([data.lat, data.lon], 7);
+            }
+        }
+    } else if (data.lat && data.lon) {
+        // No trail but have position - show plane location
+        const planeIcon = createPlaneIcon(data.heading, true);
+        L.marker([data.lat, data.lon], { icon: planeIcon }).addTo(miniMap);
+        miniMap.setView([data.lat, data.lon], 7);
     }
 }
 
