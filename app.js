@@ -1014,10 +1014,10 @@ function updateAirportMarker() {
 
     const coords = AIRPORT_COORDS[currentAirport] || [37.6213, -122.3790];
     const airportIcon = L.divIcon({
-        className: 'airport-marker',
-        html: `<span style="font-size: 24px;">🛬</span>`,
-        iconSize: [24, 24],
-        iconAnchor: [12, 12]
+        className: 'airport-label',
+        html: `<span>${currentAirport}</span>`,
+        iconSize: [40, 20],
+        iconAnchor: [20, 10]
     });
 
     airportMarker = L.marker(coords, { icon: airportIcon })
@@ -1031,9 +1031,9 @@ function createPlaneIcon(heading, isWidebody) {
     const colorClass = isWidebody ? 'widebody' : 'narrowbody';
     return L.divIcon({
         className: `plane-marker ${colorClass}`,
-        html: `<span style="display: inline-block; transform: rotate(${rotation}deg);">✈</span>`,
-        iconSize: [24, 24],
-        iconAnchor: [12, 12]
+        html: `<span style="display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; transform: rotate(${rotation}deg);">✈</span>`,
+        iconSize: [20, 20],
+        iconAnchor: [10, 10]
     });
 }
 
@@ -1115,10 +1115,11 @@ function updateMapMarkers() {
         marker.bindPopup(popupContent);
         mapMarkers.push(marker);
 
-        // Draw inbound path line from flight to destination
-        if (destCoords) {
+        // Draw path line from origin to current position
+        const originCoords = AIRPORT_COORDS[flight.origin];
+        if (originCoords) {
             const pathLine = L.polyline(
-                [[flight.lat, flight.lon], destCoords],
+                [originCoords, [flight.lat, flight.lon]],
                 {
                     color: isWidebody ? '#06b6d4' : '#f59e0b',
                     weight: 1.5,
