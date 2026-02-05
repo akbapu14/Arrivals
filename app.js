@@ -488,6 +488,17 @@ function tick() {
         const eta = parseInt(el.dataset.eta);
         if (eta) {
             el.textContent = formatETA(eta);
+
+            // Add visual classes based on time remaining
+            const diff = eta * 1000 - Date.now();
+            const minutes = diff / 60000;
+
+            el.classList.remove('soon', 'imminent');
+            if (minutes <= 5 && minutes > 0) {
+                el.classList.add('imminent');
+            } else if (minutes <= 15 && minutes > 0) {
+                el.classList.add('soon');
+            }
         }
     });
 }

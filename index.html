@@ -692,6 +692,21 @@
 
         .detail-value.eta-countdown {
             font-variant-numeric: tabular-nums;
+            transition: color 0.3s ease;
+        }
+
+        .detail-value.eta-countdown.soon {
+            color: var(--amber);
+        }
+
+        .detail-value.eta-countdown.imminent {
+            color: var(--green);
+            animation: imminentPulse 1s ease-in-out infinite;
+        }
+
+        @keyframes imminentPulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.6; }
         }
 
         .no-flights {
