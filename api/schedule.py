@@ -12,6 +12,14 @@ HEADERS = {
     'Referer': 'https://www.flightradar24.com/',
 }
 
+WIDEBODY_TYPES = {
+    'A332', 'A333', 'A338', 'A339', 'A342', 'A343', 'A345', 'A346',
+    'A359', 'A35K', 'A380', 'A388',
+    'B744', 'B748', 'B74S', 'B762', 'B763', 'B764',
+    'B772', 'B773', 'B77L', 'B77W', 'B778', 'B779',
+    'B788', 'B789', 'B78X', 'MD11',
+}
+
 def get_flight_details(flight_id):
     """Fetch live flight details including altitude."""
     if not flight_id:
@@ -57,7 +65,6 @@ class handler(BaseHTTPRequestHandler):
 
         # Parse into cleaner format
         arrivals = []
-        live_flights_to_fetch = []
 
         for flight in all_flights:
             f = flight.get('flight') or {}
@@ -89,14 +96,14 @@ class handler(BaseHTTPRequestHandler):
                 'altitude': None,
             }
 
-            # Queue live flights for altitude fetch (limit to first 10 to avoid timeout)
-            if arrival['live'] and arrival['flightId'] and len(live_flights_to_fetch) < 10:
-                live_flights_to_fetch.append((len(arrivals), arrival['flightId']))
-
             arrivals.append(arrival)
 
-        # Fetch altitude for live flights
-        for idx, flight_id in live_flights_to_fetch:
+        # Prioritize widebody flights for altitude fetch
+        live_widebodies = [(i, a['flightId']) for i, a in enumerate(arrivals)
+                          if a['live'] and a['flightId'] and a['type'] in WIDEBODY_TYPES]
+
+        # Fetch altitude for live widebodies (limit to 10 for Vercel timeout)
+        for idx, flight_id in live_widebodies[:10]:
             alt = get_flight_details(flight_id)
             if alt:
                 arrivals[idx]['altitude'] = alt

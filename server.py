@@ -11,6 +11,14 @@ import time
 PORT = 8080
 BOUNDS = "38.5,36.5,-123.5,-121"
 
+WIDEBODY_TYPES = {
+    'A332', 'A333', 'A338', 'A339', 'A342', 'A343', 'A345', 'A346',
+    'A359', 'A35K', 'A380', 'A388',
+    'B744', 'B748', 'B74S', 'B762', 'B763', 'B764',
+    'B772', 'B773', 'B77L', 'B77W', 'B778', 'B779',
+    'B788', 'B789', 'B78X', 'MD11',
+}
+
 HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
     'Origin': 'https://www.flightradar24.com',
@@ -103,7 +111,6 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
         # Parse into cleaner format
         arrivals = []
-        live_flights = []
 
         for flight in all_flights:
             f = flight.get('flight') or {}
@@ -135,14 +142,14 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 'altitude': None,
             }
 
-            # Queue live flights for altitude (limit to 10)
-            if arrival['live'] and arrival['flightId'] and len(live_flights) < 10:
-                live_flights.append((len(arrivals), arrival['flightId']))
-
             arrivals.append(arrival)
 
-        # Fetch altitudes for live flights
-        for idx, flight_id in live_flights:
+        # Prioritize widebody flights for altitude fetch
+        live_widebodies = [(i, a['flightId']) for i, a in enumerate(arrivals)
+                          if a['live'] and a['flightId'] and a['type'] in WIDEBODY_TYPES]
+
+        # Fetch altitudes for live widebodies (limit to 15)
+        for idx, flight_id in live_widebodies[:15]:
             alt = get_flight_altitude(flight_id)
             if alt:
                 arrivals[idx]['altitude'] = alt
