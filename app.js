@@ -1062,12 +1062,22 @@ function updateMapMarkers() {
             <div class="map-popup-detail">Distance: <span>${distanceStr}</span></div>
             <div class="map-popup-detail">Altitude: <span>${formatAltitude(flight.altitude)}</span></div>
             ${ttdStr}
-            ${flight.flightId ? `<button class="map-popup-btn" onclick="openFlightModal('${flight.flightId}', '${flight.flight}')">View Details</button>` : ''}
+            <div class="map-popup-actions">
+                ${flight.flightId ? `<button class="map-popup-btn" onclick="openFlightModal('${flight.flightId}', '${flight.flight}')">Details</button>` : ''}
+                <button class="map-popup-btn secondary" onclick="centerOnFlight(${flight.lat}, ${flight.lon})">Center</button>
+            </div>
         `;
 
         marker.bindPopup(popupContent);
         mapMarkers.push(marker);
     });
+}
+
+// Center map on a specific flight
+function centerOnFlight(lat, lon) {
+    if (map) {
+        map.setView([lat, lon], 9, { animate: true });
+    }
 }
 
 function setMapView(view) {

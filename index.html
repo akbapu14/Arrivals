@@ -1173,6 +1173,12 @@
             font-weight: 600;
         }
 
+        .map-popup-actions {
+            display: flex;
+            gap: 8px;
+            margin-top: 12px;
+        }
+
         .map-popup-btn {
             background: var(--cyan);
             border: none;
@@ -1183,13 +1189,23 @@
             font-family: var(--font-sans);
             font-size: 0.8rem;
             font-weight: 600;
-            margin-top: 12px;
-            width: 100%;
+            flex: 1;
             transition: opacity 0.15s ease;
         }
 
         .map-popup-btn:hover {
             opacity: 0.9;
+        }
+
+        .map-popup-btn.secondary {
+            background: var(--bg-elevated);
+            border: 1px solid var(--border);
+            color: var(--text-secondary);
+        }
+
+        .map-popup-btn.secondary:hover {
+            border-color: var(--cyan);
+            color: var(--cyan);
         }
 
         /* Mobile Styles */
