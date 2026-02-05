@@ -47,6 +47,7 @@ let showAllAircraft = savedPrefs.showAllAircraft || false;
 let currentView = savedPrefs.view || 'list';
 let map = null;
 let mapMarkers = [];
+let flightPaths = []; // Store flight path lines
 let airportMarker = null;
 let miniMap = null; // Track mini map instance for cleanup
 const NORMAL_INTERVAL = 60; // seconds
@@ -508,27 +509,8 @@ function updateDisplay() {
             }
             return diff;
         }
-        // For upcoming/all filters: prioritize by flight status
-        // 1. On approach (< 10,000 ft) - sorted by altitude (lowest first)
-        // 2. Live flights - sorted by ETA
-        // 3. Scheduled - sorted by ETA
-        const aApproach = isOnApproach(a);
-        const bApproach = isOnApproach(b);
-
-        if (aApproach && bApproach) {
-            // Both on approach - lowest altitude first (closest to landing)
-            return (a.altitude || 0) - (b.altitude || 0);
-        }
-        if (aApproach) return -1; // a comes first
-        if (bApproach) return 1;  // b comes first
-
-        // Then live flights
-        const aLive = a.live;
-        const bLive = b.live;
-        if (aLive && !bLive) return -1;
-        if (!aLive && bLive) return 1;
-
-        // Finally sort by ETA
+        // Sort by ETA (soonest first)
+        // Approach status and live status are shown visually but don't affect sort order
         return (a.eta || Infinity) - (b.eta || Infinity);
     });
 
@@ -1080,6 +1062,10 @@ function updateMapMarkers() {
     });
     mapMarkers = [];
 
+    // Clear existing flight paths
+    flightPaths.forEach(p => map.removeLayer(p));
+    flightPaths = [];
+
     const aircraft = filterAircraft(allArrivals);
     const liveFlights = aircraft.filter(a => a.live && a.lat && a.lon);
 
@@ -1128,6 +1114,22 @@ function updateMapMarkers() {
 
         marker.bindPopup(popupContent);
         mapMarkers.push(marker);
+
+        // Draw inbound path line from flight to destination
+        const destCoords = AIRPORT_COORDS[currentAirport];
+        if (destCoords) {
+            const pathLine = L.polyline(
+                [[flight.lat, flight.lon], destCoords],
+                {
+                    color: isWidebody ? '#06b6d4' : '#f59e0b',
+                    weight: 1.5,
+                    opacity: 0.3,
+                    dashArray: '5, 10',
+                    className: 'flight-path-line'
+                }
+            ).addTo(map);
+            flightPaths.push(pathLine);
+        }
     });
 }
 

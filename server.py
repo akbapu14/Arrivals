@@ -119,7 +119,7 @@ def fetch_flight_details(flight_id):
         'departureTime': time_data.get('real', {}).get('departure') or time_data.get('scheduled', {}).get('departure'),
         'arrivalTime': time_data.get('estimated', {}).get('arrival') or time_data.get('scheduled', {}).get('arrival'),
         'status': status.get('text'),
-        'trail': [[p.get('lat'), p.get('lng'), p.get('alt')] if isinstance(p, dict) else p[:3] for p in trail[:50]] if trail else []
+        'trail': [[p.get('lat'), p.get('lng'), p.get('alt')] if isinstance(p, dict) else p[:3] for p in trail] if trail else []
     }
 
 
