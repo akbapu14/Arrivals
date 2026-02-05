@@ -20,6 +20,14 @@
       "dest": "/api/schedule.py"
     },
     {
+      "src": "/api/flight-details",
+      "dest": "/api/flight-details.py"
+    },
+    {
+      "src": "/api/weather",
+      "dest": "/api/weather.py"
+    },
+    {
       "src": "/(.*)",
       "dest": "/$1"
     }

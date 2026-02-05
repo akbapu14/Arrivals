@@ -15,9 +15,30 @@ let lastRefreshTime = Date.now();
 let isLoading = false;
 let approachMode = false;
 let refreshTimer = null;
+let showAllAircraft = false; // false = widebodies only, true = all aircraft
+let currentView = 'list'; // 'list' or 'map'
+let map = null;
+let mapMarkers = [];
+let airportMarker = null;
 const NORMAL_INTERVAL = 60; // seconds
 const APPROACH_INTERVAL = 1; // seconds when aircraft on approach
 const APPROACH_ALTITUDE = 30000; // feet
+
+// Airport coordinates for map centering
+const AIRPORT_COORDS = {
+    'SFO': [37.6213, -122.3790],
+    'LAX': [33.9425, -118.4081],
+    'JFK': [40.6413, -73.7781],
+    'EWR': [40.6895, -74.1745],
+    'DFW': [32.8998, -97.0403],
+    'SAN': [32.7338, -117.1933],
+    'ORD': [41.9742, -87.9073],
+    'ATL': [33.6407, -84.4277],
+    'SEA': [47.4502, -122.3088],
+    'BOS': [42.3656, -71.0096],
+    'MIA': [25.7959, -80.2870],
+    'DEN': [39.8561, -104.6737],
+};
 
 // Fetch schedule from server
 async function fetchSchedule() {
@@ -27,8 +48,9 @@ async function fetchSchedule() {
     return data.arrivals || [];
 }
 
-// Filter for widebodies
-function filterWidebodies(arrivals) {
+// Filter aircraft by type
+function filterAircraft(arrivals) {
+    if (showAllAircraft) return arrivals;
     return arrivals.filter(a => WIDEBODY_TYPES.has(a.type));
 }
 
@@ -53,9 +75,11 @@ function formatETA(ts) {
 
     const hours = Math.floor(diff / (1000 * 60 * 60));
     const mins = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+    const secs = Math.floor((diff % (1000 * 60)) / 1000);
 
     if (hours > 0) return `${hours}h ${mins}m`;
-    return `${mins}m`;
+    // Show MM:SS format for flights under 1 hour
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
 }
 
 // Get status class
@@ -95,13 +119,16 @@ function formatAltitude(ft) {
 function renderFlightCard(arrival) {
     const landed = isLanded(arrival);
     const live = isAirborne(arrival);
+    const clickable = live && arrival.flightId;
 
     let cardClass = 'flight-card';
     if (live) cardClass += ' live';
     if (landed) cardClass += ' landed';
+    if (clickable) cardClass += ' clickable';
 
     const statusClass = getStatusClass(arrival.statusColor);
     const typeName = arrival.typeName || arrival.type;
+    const clickHandler = clickable ? `onclick="openFlightModal('${arrival.flightId}', '${arrival.flight}')"` : '';
 
     // Show altitude for live flights
     const altitudeHtml = live && arrival.altitude ? `
@@ -121,7 +148,7 @@ function renderFlightCard(arrival) {
         </div>`;
 
     return `
-        <div class="${cardClass}">
+        <div class="${cardClass}" ${clickHandler}>
             <div class="flight-header">
                 <div>
                     <span class="flight-number">${arrival.flight}</span>
@@ -173,7 +200,7 @@ function updateDisplay() {
     const nextEta = document.getElementById('next-eta');
     const lastUpdate = document.getElementById('last-update');
 
-    const widebodies = filterWidebodies(allArrivals);
+    const widebodies = filterAircraft(allArrivals);
     const upcoming = widebodies.filter(isUpcoming);
     const airborne = widebodies.filter(isAirborne);
 
@@ -214,9 +241,10 @@ function updateDisplay() {
     });
 
     if (sorted.length === 0) {
-        let msg = 'No widebody arrivals';
-        if (currentFilter === 'upcoming') msg = 'No upcoming widebody arrivals';
-        if (currentFilter === 'landed') msg = 'No recently landed widebodies';
+        const typeLabel = showAllAircraft ? 'aircraft' : 'widebody arrivals';
+        let msg = `No ${typeLabel}`;
+        if (currentFilter === 'upcoming') msg = `No upcoming ${typeLabel}`;
+        if (currentFilter === 'landed') msg = `No recently landed ${showAllAircraft ? 'aircraft' : 'widebodies'}`;
         container.innerHTML = `
             <div class="no-flights">
                 <p>${msg}</p>
@@ -225,11 +253,16 @@ function updateDisplay() {
     } else {
         container.innerHTML = sorted.map(renderFlightCard).join('');
     }
+
+    // Update map if in map view
+    if (currentView === 'map' && map) {
+        updateMapMarkers();
+    }
 }
 
 // Check if any widebody is on approach (under 30,000 ft)
 function hasApproachingAircraft() {
-    const widebodies = filterWidebodies(allArrivals);
+    const widebodies = filterAircraft(allArrivals);
     return widebodies.some(a => a.live && a.altitude && a.altitude < APPROACH_ALTITUDE);
 }
 
@@ -319,12 +352,28 @@ document.querySelectorAll('.filter-btn').forEach(btn => {
     });
 });
 
+// Update page title based on current state
+function updateTitle() {
+    const typeLabel = showAllAircraft ? 'Arrivals' : 'Widebody Arrivals';
+    document.getElementById('page-title').textContent = `${currentAirport} ${typeLabel}`;
+    document.title = `${currentAirport} ${typeLabel}`;
+    document.getElementById('stat-label-total').textContent = showAllAircraft ? 'Aircraft Today' : 'Widebodies Today';
+}
+
 // Airport selector handlers
 function selectAirport(airport) {
     currentAirport = airport.toUpperCase();
-    document.getElementById('page-title').textContent = `${currentAirport} Widebody Arrivals`;
-    document.title = `${currentAirport} Widebody Arrivals`;
+    updateTitle();
+
+    // Update map center if in map view
+    if (map) {
+        const coords = AIRPORT_COORDS[currentAirport] || [37.6213, -122.3790];
+        map.setView(coords, 8);
+        updateAirportMarker();
+    }
+
     refresh();
+    fetchWeather();
 }
 
 document.querySelectorAll('.airport-btn').forEach(btn => {
@@ -352,6 +401,439 @@ customInput.addEventListener('focus', () => {
     customInput.select();
 });
 
+// Aircraft type toggle handlers
+document.querySelectorAll('.type-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        document.querySelectorAll('.type-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        showAllAircraft = btn.dataset.type === 'all';
+        updateTitle();
+        updateDisplay();
+    });
+});
+
+// Flight details modal
+async function openFlightModal(flightId, flightNumber) {
+    const modal = document.getElementById('flight-modal');
+    const modalTitle = document.getElementById('modal-flight-number');
+    const modalBody = document.getElementById('modal-body');
+
+    modalTitle.textContent = flightNumber || 'Flight Details';
+    modal.classList.add('active');
+    document.body.style.overflow = 'hidden';
+
+    modalBody.innerHTML = `
+        <div class="modal-loading">
+            <div class="spinner"></div>
+            <p>Loading flight details...</p>
+        </div>
+    `;
+
+    try {
+        const response = await fetch(`/api/flight-details?id=${flightId}`);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const data = await response.json();
+        renderFlightModal(data);
+    } catch (error) {
+        modalBody.innerHTML = `
+            <div class="modal-loading">
+                <p style="color: #ef4444;">Error loading details: ${error.message}</p>
+            </div>
+        `;
+    }
+}
+
+function closeFlightModal(event) {
+    if (event && event.target !== event.currentTarget) return;
+    const modal = document.getElementById('flight-modal');
+    modal.classList.remove('active');
+    document.body.style.overflow = '';
+}
+
+function formatDuration(departureTs, arrivalTs) {
+    if (!departureTs || !arrivalTs) return '-';
+    const diff = (arrivalTs - departureTs) * 1000;
+    if (diff <= 0) return '-';
+    const hours = Math.floor(diff / (1000 * 60 * 60));
+    const mins = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+    return `${hours}h ${mins}m`;
+}
+
+function formatSpeed(knots) {
+    if (!knots) return '-';
+    return `${Math.round(knots)} kts`;
+}
+
+function formatHeading(degrees) {
+    if (degrees === null || degrees === undefined) return '-';
+    const directions = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+    const index = Math.round(degrees / 45) % 8;
+    return `${Math.round(degrees)}° ${directions[index]}`;
+}
+
+function formatVerticalSpeed(fpm) {
+    if (!fpm) return '-';
+    const sign = fpm > 0 ? '+' : '';
+    return `${sign}${Math.round(fpm)} ft/min`;
+}
+
+function renderFlightModal(data) {
+    const modalBody = document.getElementById('modal-body');
+
+    const duration = formatDuration(data.departureTime, data.arrivalTime);
+    const departureTime = data.departureTime ? formatTime(data.departureTime) : '-';
+    const arrivalTime = data.arrivalTime ? formatTime(data.arrivalTime) : '-';
+    const vspeedClass = data.verticalSpeed > 100 ? 'positive' : data.verticalSpeed < -100 ? 'negative' : '';
+
+    modalBody.innerHTML = `
+        <div class="modal-route">
+            <div class="modal-route-airport">
+                <div class="modal-route-code">${data.originCode || '?'}</div>
+                <div class="modal-route-name">${data.origin || ''}</div>
+            </div>
+            <div class="modal-route-arrow">✈ →</div>
+            <div class="modal-route-airport">
+                <div class="modal-route-code">${data.destinationCode || '?'}</div>
+                <div class="modal-route-name">${data.destination || ''}</div>
+            </div>
+        </div>
+
+        <div class="modal-section">
+            <div class="modal-section-title">Aircraft</div>
+            <div class="modal-grid">
+                <div class="modal-item">
+                    <span class="modal-label">Type</span>
+                    <span class="modal-value">${data.model || data.modelCode || '-'}</span>
+                </div>
+                <div class="modal-item">
+                    <span class="modal-label">Registration</span>
+                    <span class="modal-value highlight">${data.registration || '-'}</span>
+                </div>
+                <div class="modal-item">
+                    <span class="modal-label">Airline</span>
+                    <span class="modal-value">${data.airline || '-'}</span>
+                </div>
+                <div class="modal-item">
+                    <span class="modal-label">Callsign</span>
+                    <span class="modal-value">${data.callsign || '-'}</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="modal-section">
+            <div class="modal-section-title">Current Position</div>
+            <div class="modal-grid">
+                <div class="modal-item">
+                    <span class="modal-label">Altitude</span>
+                    <span class="modal-value">${formatAltitude(data.altitude)}</span>
+                </div>
+                <div class="modal-item">
+                    <span class="modal-label">Speed</span>
+                    <span class="modal-value">${formatSpeed(data.speed)}</span>
+                </div>
+                <div class="modal-item">
+                    <span class="modal-label">Heading</span>
+                    <span class="modal-value">${formatHeading(data.heading)}</span>
+                </div>
+                <div class="modal-item">
+                    <span class="modal-label">Vertical Speed</span>
+                    <span class="modal-value ${vspeedClass}">${formatVerticalSpeed(data.verticalSpeed)}</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="modal-section">
+            <div class="modal-section-title">Schedule</div>
+            <div class="modal-grid">
+                <div class="modal-item">
+                    <span class="modal-label">Departure</span>
+                    <span class="modal-value">${departureTime}</span>
+                </div>
+                <div class="modal-item">
+                    <span class="modal-label">Arrival (Est.)</span>
+                    <span class="modal-value">${arrivalTime}</span>
+                </div>
+                <div class="modal-item">
+                    <span class="modal-label">Duration</span>
+                    <span class="modal-value">${duration}</span>
+                </div>
+                <div class="modal-item">
+                    <span class="modal-label">Status</span>
+                    <span class="modal-value">${data.status || '-'}</span>
+                </div>
+            </div>
+        </div>
+
+        ${data.trail && data.trail.length > 0 && typeof initMiniMap === 'function' ? '<div id="modal-mini-map" class="modal-mini-map"></div>' : ''}
+    `;
+
+    // Initialize mini map if map mode is enabled
+    if (data.trail && data.trail.length > 0 && typeof initMiniMap === 'function') {
+        initMiniMap(data);
+    }
+}
+
+// Close modal on escape key
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+        closeFlightModal();
+    }
+});
+
+// Map functions
+function initMap() {
+    if (map) return; // Already initialized
+
+    const coords = AIRPORT_COORDS[currentAirport] || [37.6213, -122.3790];
+    map = L.map('map-container').setView(coords, 8);
+
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/">CARTO</a>',
+        maxZoom: 19
+    }).addTo(map);
+
+    // Add airport marker
+    updateAirportMarker();
+}
+
+function updateAirportMarker() {
+    if (!map) return;
+
+    if (airportMarker) {
+        map.removeLayer(airportMarker);
+    }
+
+    const coords = AIRPORT_COORDS[currentAirport] || [37.6213, -122.3790];
+    const airportIcon = L.divIcon({
+        className: 'airport-marker',
+        html: `<span style="font-size: 24px;">🛬</span>`,
+        iconSize: [24, 24],
+        iconAnchor: [12, 12]
+    });
+
+    airportMarker = L.marker(coords, { icon: airportIcon })
+        .bindPopup(`<div class="map-popup-title">${currentAirport}</div>`)
+        .addTo(map);
+}
+
+function createPlaneIcon(heading, isWidebody) {
+    const rotation = heading || 0;
+    const colorClass = isWidebody ? 'widebody' : 'narrowbody';
+    return L.divIcon({
+        className: `plane-marker ${colorClass}`,
+        html: `<span style="display: inline-block; transform: rotate(${rotation}deg);">✈</span>`,
+        iconSize: [24, 24],
+        iconAnchor: [12, 12]
+    });
+}
+
+function updateMapMarkers() {
+    if (!map) return;
+
+    // Clear existing markers
+    mapMarkers.forEach(m => map.removeLayer(m));
+    mapMarkers = [];
+
+    const aircraft = filterAircraft(allArrivals);
+    const liveFlights = aircraft.filter(a => a.live && a.lat && a.lon);
+
+    liveFlights.forEach(flight => {
+        const isWidebody = WIDEBODY_TYPES.has(flight.type);
+        const icon = createPlaneIcon(flight.heading, isWidebody);
+
+        const marker = L.marker([flight.lat, flight.lon], { icon })
+            .addTo(map);
+
+        const popupContent = `
+            <div class="map-popup-title">${flight.flight}</div>
+            <div class="map-popup-detail">Aircraft: <span>${flight.typeName || flight.type}</span></div>
+            <div class="map-popup-detail">From: <span>${flight.origin}</span></div>
+            <div class="map-popup-detail">Altitude: <span>${formatAltitude(flight.altitude)}</span></div>
+            <div class="map-popup-detail">ETA: <span>${formatETA(flight.eta)}</span></div>
+            ${flight.flightId ? `<button class="map-popup-btn" onclick="openFlightModal('${flight.flightId}', '${flight.flight}')">View Details</button>` : ''}
+        `;
+
+        marker.bindPopup(popupContent);
+        mapMarkers.push(marker);
+    });
+}
+
+function setMapView(view) {
+    currentView = view;
+    const mapContainer = document.getElementById('map-container');
+    const flightsContainer = document.getElementById('flights-container');
+
+    document.querySelectorAll('.view-btn').forEach(b => b.classList.remove('active'));
+    document.querySelector(`.view-btn[data-view="${view}"]`)?.classList.add('active');
+
+    if (view === 'map') {
+        mapContainer.classList.add('active');
+        flightsContainer.classList.add('hidden');
+        initMap();
+        updateMapMarkers();
+        // Center on airport
+        const coords = AIRPORT_COORDS[currentAirport] || [37.6213, -122.3790];
+        map.setView(coords, 8);
+        setTimeout(() => map.invalidateSize(), 100);
+    } else {
+        mapContainer.classList.remove('active');
+        flightsContainer.classList.remove('hidden');
+    }
+}
+
+// Mini map for modal
+function initMiniMap(data) {
+    const miniMapEl = document.getElementById('modal-mini-map');
+    if (!miniMapEl || !data.trail || data.trail.length === 0) return;
+
+    const miniMap = L.map('modal-mini-map', {
+        zoomControl: false,
+        attributionControl: false
+    });
+
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+        maxZoom: 19
+    }).addTo(miniMap);
+
+    // Draw flight trail
+    const trailCoords = data.trail
+        .filter(p => p && p[0] && p[1])
+        .map(p => [p[0], p[1]]);
+
+    if (trailCoords.length > 0) {
+        const polyline = L.polyline(trailCoords, {
+            color: '#00d4ff',
+            weight: 2,
+            opacity: 0.8
+        }).addTo(miniMap);
+
+        // Add current position marker
+        if (data.lat && data.lon) {
+            const planeIcon = createPlaneIcon(data.heading, true);
+            L.marker([data.lat, data.lon], { icon: planeIcon }).addTo(miniMap);
+        }
+
+        // Add destination marker
+        const destCoords = AIRPORT_COORDS[data.destinationCode];
+        if (destCoords) {
+            L.marker(destCoords, {
+                icon: L.divIcon({
+                    className: 'airport-marker',
+                    html: '<span style="font-size: 16px;">🛬</span>',
+                    iconSize: [16, 16],
+                    iconAnchor: [8, 8]
+                })
+            }).addTo(miniMap);
+        }
+
+        miniMap.fitBounds(polyline.getBounds(), { padding: [20, 20] });
+    }
+}
+
+// View toggle handlers
+document.querySelectorAll('.view-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        setMapView(btn.dataset.view);
+    });
+});
+
+// Weather functions
+async function fetchWeather() {
+    try {
+        const response = await fetch(`/api/weather?airport=${currentAirport}`);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const data = await response.json();
+        updateWeatherDisplay(data);
+    } catch (error) {
+        console.error('Weather fetch error:', error);
+        hideWeatherCard();
+    }
+}
+
+function updateWeatherDisplay(data) {
+    const card = document.getElementById('weather-card');
+    if (!data || data.error) {
+        hideWeatherCard();
+        return;
+    }
+
+    card.classList.add('active');
+    card.classList.remove('error');
+
+    // Weather icon based on conditions
+    const iconMap = {
+        '01d': '☀️', '01n': '🌙',
+        '02d': '⛅', '02n': '☁️',
+        '03d': '☁️', '03n': '☁️',
+        '04d': '☁️', '04n': '☁️',
+        '09d': '🌧️', '09n': '🌧️',
+        '10d': '🌦️', '10n': '🌧️',
+        '11d': '⛈️', '11n': '⛈️',
+        '13d': '🌨️', '13n': '🌨️',
+        '50d': '🌫️', '50n': '🌫️',
+    };
+
+    document.getElementById('weather-icon').textContent = iconMap[data.icon] || '🌤️';
+    document.getElementById('weather-description').textContent = data.description || '';
+
+    // Temperature
+    if (data.temp !== null) {
+        document.getElementById('weather-temp').textContent = `${data.temp}°F`;
+    } else {
+        document.getElementById('weather-temp').textContent = '-';
+    }
+
+    // Visibility - critical for spotting
+    const visEl = document.getElementById('weather-visibility');
+    if (data.visibility_miles !== null) {
+        visEl.textContent = `${data.visibility_miles} mi`;
+        visEl.className = 'weather-value';
+        if (data.visibility_miles >= 10) {
+            visEl.classList.add('good');
+        } else if (data.visibility_miles >= 5) {
+            visEl.classList.add('moderate');
+        } else {
+            visEl.classList.add('poor');
+        }
+    } else {
+        visEl.textContent = '-';
+        visEl.className = 'weather-value';
+    }
+
+    // Cloud cover
+    const cloudsEl = document.getElementById('weather-clouds');
+    if (data.clouds !== null) {
+        cloudsEl.textContent = `${data.clouds}%`;
+        cloudsEl.className = 'weather-value';
+        if (data.clouds <= 25) {
+            cloudsEl.classList.add('good');
+        } else if (data.clouds <= 50) {
+            cloudsEl.classList.add('moderate');
+        } else {
+            cloudsEl.classList.add('poor');
+        }
+    } else {
+        cloudsEl.textContent = '-';
+        cloudsEl.className = 'weather-value';
+    }
+
+    // Wind
+    if (data.wind_speed !== null) {
+        const windDir = data.wind_direction || '';
+        document.getElementById('weather-wind').textContent = `${data.wind_speed} mph ${windDir}`;
+    } else {
+        document.getElementById('weather-wind').textContent = '-';
+    }
+}
+
+function hideWeatherCard() {
+    const card = document.getElementById('weather-card');
+    card.classList.remove('active');
+}
+
 // Start
 refresh();
+fetchWeather();
 setInterval(tick, 1000);
+// Refresh weather every 5 minutes
+setInterval(fetchWeather, 5 * 60 * 1000);

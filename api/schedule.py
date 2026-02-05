@@ -22,7 +22,7 @@ WIDEBODY_TYPES = {
 }
 
 def get_flight_details(flight_id):
-    """Fetch live flight details including altitude."""
+    """Fetch live flight details including altitude, position, heading."""
     if not flight_id:
         return None
     try:
@@ -34,9 +34,21 @@ def get_flight_details(flight_id):
             if trail and len(trail) > 0:
                 latest = trail[0]
                 if isinstance(latest, dict):
-                    return latest.get('alt')
-                elif isinstance(latest, list) and len(latest) >= 3:
-                    return latest[2]
+                    return {
+                        'alt': latest.get('alt'),
+                        'lat': latest.get('lat'),
+                        'lon': latest.get('lng'),
+                        'heading': latest.get('hd'),
+                        'speed': latest.get('spd')
+                    }
+                elif isinstance(latest, list) and len(latest) >= 5:
+                    return {
+                        'alt': latest[2],
+                        'lat': latest[0],
+                        'lon': latest[1],
+                        'heading': latest[4] if len(latest) > 4 else None,
+                        'speed': latest[3] if len(latest) > 3 else None
+                    }
     except:
         pass
     return None
@@ -104,6 +116,9 @@ class handler(BaseHTTPRequestHandler):
                 'live': status_info.get('live', False),
                 'flightId': ident.get('id'),
                 'altitude': None,
+                'lat': None,
+                'lon': None,
+                'heading': None,
             }
 
             arrivals.append(arrival)
@@ -112,17 +127,20 @@ class handler(BaseHTTPRequestHandler):
         live_widebodies = [(i, a['flightId']) for i, a in enumerate(arrivals)
                           if a['live'] and a['flightId'] and a['type'] in WIDEBODY_TYPES]
 
-        # Fetch altitudes in parallel (limit to 10 for Vercel)
-        def fetch_alt(item):
+        # Fetch flight details in parallel (limit to 10 for Vercel)
+        def fetch_details(item):
             idx, flight_id = item
             return idx, get_flight_details(flight_id)
 
         with ThreadPoolExecutor(max_workers=10) as executor:
-            futures = [executor.submit(fetch_alt, item) for item in live_widebodies[:10]]
+            futures = [executor.submit(fetch_details, item) for item in live_widebodies[:10]]
             for future in as_completed(futures):
-                idx, alt = future.result()
-                if alt:
-                    arrivals[idx]['altitude'] = alt
+                idx, details = future.result()
+                if details:
+                    arrivals[idx]['altitude'] = details.get('alt')
+                    arrivals[idx]['lat'] = details.get('lat')
+                    arrivals[idx]['lon'] = details.get('lon')
+                    arrivals[idx]['heading'] = details.get('heading')
 
         # Send response
         self.send_response(200)

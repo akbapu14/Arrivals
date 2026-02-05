@@ -4,6 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>SFO Widebody Arrivals</title>
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -49,10 +51,22 @@
         .filters {
             display: flex;
             justify-content: center;
+            align-items: center;
             gap: 10px;
             margin-bottom: 20px;
+            flex-wrap: wrap;
         }
-        .filter-btn {
+        .filter-group {
+            display: flex;
+            gap: 8px;
+        }
+        .filter-separator {
+            width: 1px;
+            height: 24px;
+            background: rgba(255, 255, 255, 0.2);
+            margin: 0 8px;
+        }
+        .filter-btn, .type-btn {
             background: rgba(255, 255, 255, 0.1);
             border: 1px solid rgba(255, 255, 255, 0.2);
             color: #888;
@@ -62,11 +76,11 @@
             font-size: 0.9rem;
             transition: all 0.2s;
         }
-        .filter-btn:hover {
+        .filter-btn:hover, .type-btn:hover {
             background: rgba(255, 255, 255, 0.15);
             color: #fff;
         }
-        .filter-btn.active {
+        .filter-btn.active, .type-btn.active {
             background: linear-gradient(90deg, #7c3aed, #00d4ff);
             border-color: transparent;
             color: #fff;
@@ -240,6 +254,310 @@
             font-size: 1.2rem;
             grid-column: 1 / -1;
         }
+        /* Modal styles */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.8);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+        .modal-overlay.active {
+            display: flex;
+        }
+        .modal {
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            border-radius: 16px;
+            max-width: 500px;
+            width: 100%;
+            max-height: 90vh;
+            overflow-y: auto;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+        }
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 20px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .modal-title {
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: #00d4ff;
+        }
+        .modal-close {
+            background: none;
+            border: none;
+            color: #888;
+            font-size: 1.5rem;
+            cursor: pointer;
+            padding: 5px 10px;
+            transition: color 0.2s;
+        }
+        .modal-close:hover {
+            color: #fff;
+        }
+        .modal-body {
+            padding: 20px;
+        }
+        .modal-section {
+            margin-bottom: 20px;
+        }
+        .modal-section-title {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            color: #666;
+            margin-bottom: 10px;
+            letter-spacing: 1px;
+        }
+        .modal-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 15px;
+        }
+        .modal-item {
+            display: flex;
+            flex-direction: column;
+        }
+        .modal-label {
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            color: #666;
+            margin-bottom: 3px;
+        }
+        .modal-value {
+            font-size: 1.1rem;
+            font-weight: 500;
+            color: #fff;
+        }
+        .modal-value.highlight {
+            color: #00d4ff;
+        }
+        .modal-value.positive {
+            color: #22c55e;
+        }
+        .modal-value.negative {
+            color: #ef4444;
+        }
+        .modal-route {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            padding: 15px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 12px;
+            margin-bottom: 15px;
+        }
+        .modal-route-airport {
+            text-align: center;
+        }
+        .modal-route-code {
+            font-size: 1.3rem;
+            font-weight: bold;
+            color: #a78bfa;
+        }
+        .modal-route-name {
+            font-size: 0.75rem;
+            color: #888;
+            max-width: 120px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .modal-route-arrow {
+            flex: 1;
+            text-align: center;
+            color: #666;
+            font-size: 1.2rem;
+        }
+        .modal-loading {
+            text-align: center;
+            padding: 40px;
+            color: #888;
+        }
+        .modal-mini-map {
+            height: 200px;
+            border-radius: 12px;
+            overflow: hidden;
+            margin-top: 15px;
+        }
+        .flight-card.clickable {
+            cursor: pointer;
+        }
+        .flight-card.clickable:active {
+            transform: scale(0.98);
+        }
+        /* Map mode styles */
+        .view-toggle {
+            display: flex;
+            justify-content: center;
+            gap: 8px;
+            margin-bottom: 20px;
+        }
+        .view-btn {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: #888;
+            padding: 8px 16px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .view-btn:hover {
+            background: rgba(255, 255, 255, 0.15);
+            color: #fff;
+        }
+        .view-btn.active {
+            background: linear-gradient(90deg, #00d4ff, #7c3aed);
+            border-color: transparent;
+            color: #fff;
+            font-weight: 600;
+        }
+        #map-container {
+            display: none;
+            height: 70vh;
+            min-height: 400px;
+            max-width: 1400px;
+            margin: 0 auto;
+            border-radius: 16px;
+            overflow: hidden;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        #map-container.active {
+            display: block;
+        }
+        #flights-container.hidden {
+            display: none;
+        }
+        .plane-marker {
+            font-size: 24px;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.5);
+        }
+        .plane-marker.widebody {
+            color: #00d4ff;
+        }
+        .plane-marker.narrowbody {
+            color: #a78bfa;
+        }
+        .leaflet-popup-content-wrapper {
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: #fff;
+            border-radius: 12px;
+        }
+        .leaflet-popup-tip {
+            background: #16213e;
+        }
+        .leaflet-popup-content {
+            margin: 12px;
+        }
+        .map-popup-title {
+            font-size: 1.1rem;
+            font-weight: bold;
+            color: #00d4ff;
+            margin-bottom: 8px;
+        }
+        .map-popup-detail {
+            font-size: 0.85rem;
+            color: #ccc;
+            margin: 4px 0;
+        }
+        .map-popup-detail span {
+            color: #fff;
+            font-weight: 500;
+        }
+        .map-popup-btn {
+            background: linear-gradient(90deg, #7c3aed, #00d4ff);
+            border: none;
+            color: #fff;
+            padding: 6px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.8rem;
+            margin-top: 10px;
+            width: 100%;
+        }
+        .map-popup-btn:hover {
+            opacity: 0.9;
+        }
+        .airport-marker {
+            font-size: 20px;
+        }
+        /* Weather card styles */
+        .weather-card {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            padding: 15px 20px;
+            max-width: 600px;
+            margin: 0 auto 20px;
+            display: none;
+        }
+        .weather-card.active {
+            display: block;
+        }
+        .weather-card.error {
+            opacity: 0.5;
+        }
+        .weather-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 12px;
+        }
+        .weather-icon {
+            font-size: 1.5rem;
+        }
+        .weather-title {
+            font-size: 0.85rem;
+            color: #888;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        .weather-description {
+            color: #fff;
+            font-size: 0.9rem;
+            margin-left: auto;
+        }
+        .weather-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 15px;
+        }
+        .weather-item {
+            text-align: center;
+        }
+        .weather-value {
+            font-size: 1.3rem;
+            font-weight: 600;
+            color: #00d4ff;
+        }
+        .weather-value.good {
+            color: #22c55e;
+        }
+        .weather-value.moderate {
+            color: #facc15;
+        }
+        .weather-value.poor {
+            color: #ef4444;
+        }
+        .weather-label {
+            font-size: 0.7rem;
+            color: #888;
+            text-transform: uppercase;
+            margin-top: 4px;
+        }
         .loading {
             text-align: center;
             padding: 60px 20px;
@@ -298,7 +616,13 @@
                 gap: 6px;
                 margin-bottom: 12px;
             }
-            .filter-btn {
+            .filter-group {
+                gap: 6px;
+            }
+            .filter-separator {
+                display: none;
+            }
+            .filter-btn, .type-btn {
                 padding: 8px 12px;
                 font-size: 0.8rem;
             }
@@ -333,6 +657,53 @@
             .detail-label {
                 font-size: 0.7rem;
             }
+            .modal-overlay {
+                padding: 10px;
+            }
+            .modal {
+                max-height: 85vh;
+            }
+            .modal-header {
+                padding: 15px;
+            }
+            .modal-body {
+                padding: 15px;
+            }
+            .modal-grid {
+                gap: 10px;
+            }
+            .modal-route {
+                padding: 12px;
+                gap: 10px;
+            }
+            .modal-route-code {
+                font-size: 1.1rem;
+            }
+            .modal-mini-map {
+                height: 150px;
+            }
+            .view-toggle {
+                gap: 6px;
+            }
+            .view-btn {
+                padding: 6px 12px;
+                font-size: 0.8rem;
+            }
+            #map-container {
+                height: 60vh;
+                min-height: 300px;
+                border-radius: 12px;
+            }
+            .weather-card {
+                padding: 12px 15px;
+            }
+            .weather-grid {
+                grid-template-columns: repeat(2, 1fr);
+                gap: 10px;
+            }
+            .weather-value {
+                font-size: 1.1rem;
+            }
         }
 
         /* Extra small screens */
@@ -343,7 +714,7 @@
             .stat-value {
                 font-size: 1.5rem;
             }
-            .filter-btn {
+            .filter-btn, .type-btn {
                 padding: 6px 10px;
                 font-size: 0.75rem;
             }
@@ -367,7 +738,7 @@
     <div class="stats">
         <div class="stat">
             <div class="stat-value" id="total-count">-</div>
-            <div class="stat-label">Widebodies Today</div>
+            <div class="stat-label" id="stat-label-total">Widebodies Today</div>
         </div>
         <div class="stat">
             <div class="stat-value" id="airborne-count">-</div>
@@ -379,13 +750,53 @@
         </div>
     </div>
 
+    <div id="weather-card" class="weather-card">
+        <div class="weather-header">
+            <span class="weather-icon" id="weather-icon">-</span>
+            <span class="weather-title">Spotting Conditions</span>
+            <span class="weather-description" id="weather-description">-</span>
+        </div>
+        <div class="weather-grid">
+            <div class="weather-item">
+                <div class="weather-value" id="weather-temp">-</div>
+                <div class="weather-label">Temp</div>
+            </div>
+            <div class="weather-item">
+                <div class="weather-value" id="weather-visibility">-</div>
+                <div class="weather-label">Visibility</div>
+            </div>
+            <div class="weather-item">
+                <div class="weather-value" id="weather-clouds">-</div>
+                <div class="weather-label">Cloud Cover</div>
+            </div>
+            <div class="weather-item">
+                <div class="weather-value" id="weather-wind">-</div>
+                <div class="weather-label">Wind</div>
+            </div>
+        </div>
+    </div>
+
     <div class="filters">
-        <button class="filter-btn active" data-filter="upcoming">Upcoming</button>
-        <button class="filter-btn" data-filter="landed">Recently Landed</button>
-        <button class="filter-btn" data-filter="all">All</button>
+        <div class="filter-group">
+            <button class="type-btn active" data-type="widebody">Widebodies</button>
+            <button class="type-btn" data-type="all">All Aircraft</button>
+        </div>
+        <div class="filter-separator"></div>
+        <div class="filter-group">
+            <button class="filter-btn active" data-filter="upcoming">Upcoming</button>
+            <button class="filter-btn" data-filter="landed">Recently Landed</button>
+            <button class="filter-btn" data-filter="all">All</button>
+        </div>
     </div>
 
     <p class="refresh-info">Last updated: <span id="last-update">-</span> | Next refresh in <span id="countdown">--</span>s</p>
+
+    <div class="view-toggle">
+        <button class="view-btn active" data-view="list">List View</button>
+        <button class="view-btn" data-view="map">Map View</button>
+    </div>
+
+    <div id="map-container"></div>
 
     <div id="flights-container" class="flights-grid">
         <div class="loading">
@@ -394,6 +805,24 @@
         </div>
     </div>
 
+    <!-- Flight Details Modal -->
+    <div id="flight-modal" class="modal-overlay" onclick="closeFlightModal(event)">
+        <div class="modal" onclick="event.stopPropagation()">
+            <div class="modal-header">
+                <span class="modal-title" id="modal-flight-number">-</span>
+                <button class="modal-close" onclick="closeFlightModal()">&times;</button>
+            </div>
+            <div class="modal-body" id="modal-body">
+                <div class="modal-loading">
+                    <div class="spinner"></div>
+                    <p>Loading flight details...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
     <script src="app.js"></script>
 </body>
 </html>
