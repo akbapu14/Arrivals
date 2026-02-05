@@ -198,6 +198,25 @@ function formatAltitude(ft) {
     return `${Math.round(ft).toLocaleString()} ft`;
 }
 
+// Calculate distance between two points using Haversine formula
+function calculateDistance(lat1, lon1, lat2, lon2) {
+    const R = 3440.065; // Earth's radius in nautical miles
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+              Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+              Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
+}
+
+// Format distance
+function formatDistance(nm) {
+    if (!nm || nm <= 0) return '-';
+    if (nm < 100) return `${Math.round(nm)} nm`;
+    return `${Math.round(nm).toLocaleString()} nm`;
+}
+
 // Check if flight is on approach (below 10,000 ft)
 function isOnApproach(arrival) {
     return arrival.live && arrival.altitude && arrival.altitude < 10000;
@@ -219,6 +238,21 @@ function renderFlightCard(arrival) {
     const statusClass = getStatusClass(arrival.statusColor);
     const typeName = arrival.typeName || arrival.type;
     const clickHandler = clickable ? `onclick="openFlightModal('${arrival.flightId}', '${arrival.flight}')"` : '';
+
+    // Calculate distance for live flights
+    let distanceHtml = '';
+    if (live && arrival.lat && arrival.lon) {
+        const destCoords = AIRPORT_COORDS[currentAirport];
+        if (destCoords) {
+            const distance = calculateDistance(arrival.lat, arrival.lon, destCoords[0], destCoords[1]);
+            distanceHtml = `
+                <div class="detail">
+                    <span class="detail-label">Distance</span>
+                    <span class="detail-value distance">${formatDistance(distance)}</span>
+                </div>
+            `;
+        }
+    }
 
     // Show altitude for live flights
     const altitudeHtml = live && arrival.altitude ? `
@@ -265,7 +299,8 @@ function renderFlightCard(arrival) {
                     <span class="detail-value origin">${arrival.origin}</span>
                 </div>
                 ${altitudeHtml}
-                ${!altitudeHtml && !landed ? `<div class="detail">
+                ${distanceHtml}
+                ${!altitudeHtml && !landed && !distanceHtml ? `<div class="detail">
                     <span class="detail-label">Status</span>
                     <span class="detail-value"><span class="status-badge ${statusClass}">${arrival.status || 'Scheduled'}</span></span>
                 </div>` : ''}
