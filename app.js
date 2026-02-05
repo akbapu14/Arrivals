@@ -7,16 +7,44 @@ const WIDEBODY_TYPES = new Set([
     'B788', 'B789', 'B78X', 'MD11',
 ]);
 
+// Load saved preferences from localStorage
+function loadPreferences() {
+    try {
+        const saved = localStorage.getItem('avgeek_preferences');
+        if (saved) {
+            return JSON.parse(saved);
+        }
+    } catch (e) {
+        console.warn('Could not load preferences:', e);
+    }
+    return {};
+}
+
+function savePreferences() {
+    try {
+        localStorage.setItem('avgeek_preferences', JSON.stringify({
+            airport: currentAirport,
+            filter: currentFilter,
+            view: currentView,
+            showAllAircraft: showAllAircraft
+        }));
+    } catch (e) {
+        console.warn('Could not save preferences:', e);
+    }
+}
+
+const savedPrefs = loadPreferences();
+
 // State
 let allArrivals = [];
-let currentFilter = 'upcoming';
-let currentAirport = 'SFO';
+let currentFilter = savedPrefs.filter || 'upcoming';
+let currentAirport = savedPrefs.airport || 'SFO';
 let lastRefreshTime = Date.now();
 let isLoading = false;
 let approachMode = false;
 let refreshTimer = null;
-let showAllAircraft = false; // false = widebodies only, true = all aircraft
-let currentView = 'list'; // 'list' or 'map'
+let showAllAircraft = savedPrefs.showAllAircraft || false;
+let currentView = savedPrefs.view || 'list';
 let map = null;
 let mapMarkers = [];
 let airportMarker = null;
@@ -346,9 +374,14 @@ async function refresh() {
 // Filter button handlers
 document.querySelectorAll('.filter-btn').forEach(btn => {
     btn.addEventListener('click', () => {
-        document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.filter-btn').forEach(b => {
+            b.classList.remove('active');
+            b.setAttribute('aria-pressed', 'false');
+        });
         btn.classList.add('active');
+        btn.setAttribute('aria-pressed', 'true');
         currentFilter = btn.dataset.filter;
+        savePreferences();
         updateDisplay();
     });
 });
@@ -364,6 +397,7 @@ function updateTitle() {
 function selectAirport(airport) {
     currentAirport = airport.toUpperCase();
     updateTitle();
+    savePreferences();
 
     // Update map center if in map view
     if (map) {
@@ -404,10 +438,15 @@ customInput.addEventListener('focus', () => {
 // Aircraft type toggle handlers
 document.querySelectorAll('.type-btn').forEach(btn => {
     btn.addEventListener('click', () => {
-        document.querySelectorAll('.type-btn').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.type-btn').forEach(b => {
+            b.classList.remove('active');
+            b.setAttribute('aria-pressed', 'false');
+        });
         btn.classList.add('active');
+        btn.setAttribute('aria-pressed', 'true');
         showAllAircraft = btn.dataset.type === 'all';
         updateTitle();
+        savePreferences();
         updateDisplay();
     });
 });
@@ -717,11 +756,19 @@ function updateMapMarkers() {
 
 function setMapView(view) {
     currentView = view;
+    savePreferences();
     const mapContainer = document.getElementById('map-container');
     const flightsContainer = document.getElementById('flights-container');
 
-    document.querySelectorAll('.view-btn').forEach(b => b.classList.remove('active'));
-    document.querySelector(`.view-btn[data-view="${view}"]`)?.classList.add('active');
+    document.querySelectorAll('.view-btn').forEach(b => {
+        b.classList.remove('active');
+        b.setAttribute('aria-pressed', 'false');
+    });
+    const activeViewBtn = document.querySelector(`.view-btn[data-view="${view}"]`);
+    if (activeViewBtn) {
+        activeViewBtn.classList.add('active');
+        activeViewBtn.setAttribute('aria-pressed', 'true');
+    }
 
     if (view === 'map') {
         mapContainer.classList.add('active');
@@ -907,7 +954,60 @@ function hideWeatherCard() {
     card.classList.remove('active');
 }
 
+// Initialize UI from saved preferences
+function initFromPreferences() {
+    // Restore airport selection
+    const airportBtns = document.querySelectorAll('.airport-btn');
+    airportBtns.forEach(b => b.classList.remove('active'));
+    const matchingAirportBtn = document.querySelector(`.airport-btn[data-airport="${currentAirport}"]`);
+    if (matchingAirportBtn) {
+        matchingAirportBtn.classList.add('active');
+    } else {
+        // Custom airport
+        const customInput = document.getElementById('custom-airport');
+        customInput.value = currentAirport;
+        customInput.classList.add('active');
+    }
+
+    // Restore filter selection
+    document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+    document.querySelector(`.filter-btn[data-filter="${currentFilter}"]`)?.classList.add('active');
+
+    // Restore aircraft type selection
+    document.querySelectorAll('.type-btn').forEach(b => b.classList.remove('active'));
+    document.querySelector(`.type-btn[data-type="${showAllAircraft ? 'all' : 'widebody'}"]`)?.classList.add('active');
+
+    // Restore view selection - delay map init until after first data load
+    if (currentView === 'map') {
+        // Temporarily set to list, will switch to map after first refresh
+        currentView = 'list';
+        setTimeout(() => setMapView('map'), 100);
+    }
+
+    // Update title
+    updateTitle();
+}
+
+// Offline detection
+window.addEventListener('online', () => {
+    console.log('Network online - refreshing data');
+    setStatus(true);
+    refresh();
+    fetchWeather();
+});
+
+window.addEventListener('offline', () => {
+    console.log('Network offline');
+    setStatus(false);
+    const indicator = document.getElementById('status-indicator');
+    if (indicator) {
+        indicator.textContent = 'Offline';
+        indicator.className = 'status-indicator offline';
+    }
+});
+
 // Start
+initFromPreferences();
 refresh();
 fetchWeather();
 setInterval(tick, 1000);

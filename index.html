@@ -378,6 +378,16 @@
             color: var(--text-secondary);
         }
 
+        .shortcuts-hint {
+            cursor: help;
+            border-bottom: 1px dotted var(--text-muted);
+            transition: color 0.15s ease;
+        }
+
+        .shortcuts-hint:hover {
+            color: var(--cyan);
+        }
+
         /* View Toggle */
         .view-toggle {
             display: flex;
@@ -1050,15 +1060,15 @@
             </p>
         </header>
 
-        <div class="airport-selector">
-            <button class="airport-btn active" data-airport="SFO">SFO</button>
-            <button class="airport-btn" data-airport="LAX">LAX</button>
-            <button class="airport-btn" data-airport="JFK">JFK</button>
-            <button class="airport-btn" data-airport="EWR">EWR</button>
-            <button class="airport-btn" data-airport="DFW">DFW</button>
-            <button class="airport-btn" data-airport="SAN">SAN</button>
-            <input type="text" id="custom-airport" class="custom-airport-input" placeholder="Other" maxlength="4">
-        </div>
+        <nav class="airport-selector" aria-label="Airport selection">
+            <button class="airport-btn active" data-airport="SFO" aria-label="San Francisco International Airport">SFO</button>
+            <button class="airport-btn" data-airport="LAX" aria-label="Los Angeles International Airport">LAX</button>
+            <button class="airport-btn" data-airport="JFK" aria-label="John F. Kennedy International Airport">JFK</button>
+            <button class="airport-btn" data-airport="EWR" aria-label="Newark Liberty International Airport">EWR</button>
+            <button class="airport-btn" data-airport="DFW" aria-label="Dallas/Fort Worth International Airport">DFW</button>
+            <button class="airport-btn" data-airport="SAN" aria-label="San Diego International Airport">SAN</button>
+            <input type="text" id="custom-airport" class="custom-airport-input" placeholder="Other" maxlength="4" aria-label="Enter custom airport code">
+        </nav>
 
         <div class="stats-panel">
             <div class="stat">
@@ -1101,24 +1111,24 @@
             </div>
         </div>
 
-        <div class="filters">
-            <div class="filter-group">
-                <button class="type-btn active" data-type="widebody">Widebodies</button>
-                <button class="type-btn" data-type="all">All Aircraft</button>
+        <div class="filters" role="toolbar" aria-label="Flight filters">
+            <div class="filter-group" role="group" aria-label="Aircraft type filter">
+                <button class="type-btn active" data-type="widebody" aria-pressed="true">Widebodies</button>
+                <button class="type-btn" data-type="all" aria-pressed="false">All Aircraft</button>
             </div>
-            <div class="filter-separator"></div>
-            <div class="filter-group">
-                <button class="filter-btn active" data-filter="upcoming">Upcoming</button>
-                <button class="filter-btn" data-filter="landed">Landed</button>
-                <button class="filter-btn" data-filter="all">All</button>
+            <div class="filter-separator" aria-hidden="true"></div>
+            <div class="filter-group" role="group" aria-label="Flight status filter">
+                <button class="filter-btn active" data-filter="upcoming" aria-pressed="true">Upcoming</button>
+                <button class="filter-btn" data-filter="landed" aria-pressed="false">Landed</button>
+                <button class="filter-btn" data-filter="all" aria-pressed="false">All</button>
             </div>
         </div>
 
-        <p class="refresh-info">Updated <span id="last-update">-</span> · Next in <span id="countdown">--</span>s</p>
+        <p class="refresh-info">Updated <span id="last-update">-</span> · Next in <span id="countdown">--</span>s · <span class="shortcuts-hint" title="M: Toggle map | R: Refresh | F: Fit map | 1/2/3: Filters | Esc: Close modal">⌨ Shortcuts</span></p>
 
-        <div class="view-toggle">
-            <button class="view-btn active" data-view="list">List</button>
-            <button class="view-btn" data-view="map">Map</button>
+        <div class="view-toggle" role="group" aria-label="View mode">
+            <button class="view-btn active" data-view="list" aria-pressed="true">List</button>
+            <button class="view-btn" data-view="map" aria-pressed="false">Map</button>
         </div>
 
         <div id="map-container"></div>
@@ -1132,15 +1142,15 @@
     </div>
 
     <!-- Flight Details Modal -->
-    <div id="flight-modal" class="modal-overlay" onclick="closeFlightModal(event)">
+    <div id="flight-modal" class="modal-overlay" onclick="closeFlightModal(event)" role="dialog" aria-modal="true" aria-labelledby="modal-flight-number">
         <div class="modal" onclick="event.stopPropagation()">
             <div class="modal-header">
-                <span class="modal-title" id="modal-flight-number">-</span>
-                <button class="modal-close" onclick="closeFlightModal()">×</button>
+                <h2 class="modal-title" id="modal-flight-number">-</h2>
+                <button class="modal-close" onclick="closeFlightModal()" aria-label="Close modal">×</button>
             </div>
             <div class="modal-body" id="modal-body">
                 <div class="modal-loading">
-                    <div class="spinner"></div>
+                    <div class="spinner" aria-hidden="true"></div>
                     <p>Loading flight details...</p>
                 </div>
             </div>
