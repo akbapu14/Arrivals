@@ -94,21 +94,30 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self.send_error(500, str(e))
 
     def get_schedule(self, airport='SFO'):
-        """Fetch scheduled arrivals from FlightRadar24."""
-        timestamp = int(time.time())
+        """Fetch scheduled arrivals from FlightRadar24, including last 12 hours."""
+        now = int(time.time())
         all_flights = []
+        seen_flights = set()
 
-        # Fetch multiple pages (5 pages = 500 flights)
-        for page in range(1, 6):
-            url = f"https://api.flightradar24.com/common/v1/airport.json?code={airport}&plugin=schedule&plugin-setting%5Bschedule%5D%5Bmode%5D=arrivals&plugin-setting%5Bschedule%5D%5Btimestamp%5D={timestamp}&limit=100&page={page}"
-            try:
-                req = urllib.request.Request(url, headers=HEADERS)
-                with urllib.request.urlopen(req, timeout=10) as response:
-                    data = json.loads(response.read())
-                    flights = data.get('result', {}).get('response', {}).get('airport', {}).get('pluginData', {}).get('schedule', {}).get('arrivals', {}).get('data', [])
-                    all_flights.extend(flights)
-            except:
-                break
+        # Fetch current + historical data (every 3 hours for last 12 hours)
+        timestamps = [now - (i * 3 * 3600) for i in range(5)]  # now, -3h, -6h, -9h, -12h
+
+        for timestamp in timestamps:
+            for page in range(1, 3):  # 2 pages per timestamp
+                url = f"https://api.flightradar24.com/common/v1/airport.json?code={airport}&plugin=schedule&plugin-setting%5Bschedule%5D%5Bmode%5D=arrivals&plugin-setting%5Bschedule%5D%5Btimestamp%5D={timestamp}&limit=100&page={page}"
+                try:
+                    req = urllib.request.Request(url, headers=HEADERS)
+                    with urllib.request.urlopen(req, timeout=10) as response:
+                        data = json.loads(response.read())
+                        flights = data.get('result', {}).get('response', {}).get('airport', {}).get('pluginData', {}).get('schedule', {}).get('arrivals', {}).get('data', [])
+                        for f in flights:
+                            # Dedupe by flight ID
+                            fid = f.get('flight', {}).get('identification', {}).get('id')
+                            if fid and fid not in seen_flights:
+                                seen_flights.add(fid)
+                                all_flights.append(f)
+                except:
+                    break
 
         # Parse into cleaner format
         arrivals = []
