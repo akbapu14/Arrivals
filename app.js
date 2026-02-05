@@ -18,50 +18,6 @@ let refreshTimer = null;
 const NORMAL_INTERVAL = 60; // seconds
 const APPROACH_INTERVAL = 1; // seconds when aircraft on approach
 const APPROACH_ALTITUDE = 30000; // feet
-const LANDED_CACHE_HOURS = 12;
-
-// Cache for landed flights (persisted to localStorage)
-function getLandedCache() {
-    try {
-        return JSON.parse(localStorage.getItem('landedFlights') || '{}');
-    } catch {
-        return {};
-    }
-}
-
-function saveLandedCache(cache) {
-    localStorage.setItem('landedFlights', JSON.stringify(cache));
-}
-
-function cacheLandedFlight(flight, airport) {
-    const cache = getLandedCache();
-    const key = `${airport}-${flight.flight}-${flight.origin}`;
-    if (!cache[key]) {
-        cache[key] = {
-            ...flight,
-            cachedAt: Date.now(),
-            airport: airport
-        };
-        saveLandedCache(cache);
-    }
-}
-
-function getCachedLandedFlights(airport) {
-    const cache = getLandedCache();
-    const cutoff = Date.now() - (LANDED_CACHE_HOURS * 60 * 60 * 1000);
-    const validFlights = [];
-
-    for (const [key, flight] of Object.entries(cache)) {
-        if (flight.airport === airport && flight.cachedAt > cutoff) {
-            validFlights.push(flight);
-        } else if (flight.cachedAt <= cutoff) {
-            delete cache[key]; // Clean up old entries
-        }
-    }
-
-    saveLandedCache(cache);
-    return validFlights;
-}
 
 // Fetch schedule from server
 async function fetchSchedule() {
@@ -115,27 +71,6 @@ function isLanded(arrival) {
     return arrival.status?.toLowerCase().includes('landed');
 }
 
-// Check if flight landed within last N hours
-function landedWithinHours(arrival, hours) {
-    if (!isLanded(arrival)) return false;
-    // Status format: "Landed 16:30"
-    const match = arrival.status?.match(/landed\s+(\d{1,2}):(\d{2})/i);
-    if (!match) return true; // If can't parse, include it
-
-    const landedHour = parseInt(match[1]);
-    const landedMin = parseInt(match[2]);
-    const now = new Date();
-    const landed = new Date();
-    landed.setHours(landedHour, landedMin, 0, 0);
-
-    // If landed time is in the future, it was yesterday
-    if (landed > now) {
-        landed.setDate(landed.getDate() - 1);
-    }
-
-    const hoursSinceLanded = (now - landed) / (1000 * 60 * 60);
-    return hoursSinceLanded <= hours;
-}
 
 // Check if flight is airborne
 function isAirborne(arrival) {
@@ -224,7 +159,7 @@ function applyFilter(arrivals) {
         case 'upcoming':
             return arrivals.filter(isUpcoming);
         case 'landed':
-            return arrivals.filter(a => landedWithinHours(a, 12));
+            return arrivals.filter(isLanded);
         default:
             return arrivals;
     }
@@ -332,29 +267,7 @@ async function refresh() {
 
     setLoading(true);
     try {
-        const apiArrivals = await fetchSchedule();
-
-        // Cache any landed widebody flights
-        apiArrivals.forEach(flight => {
-            if (WIDEBODY_TYPES.has(flight.type) && isLanded(flight)) {
-                cacheLandedFlight(flight, currentAirport);
-            }
-        });
-
-        // Merge API data with cached landed flights
-        const cachedLanded = getCachedLandedFlights(currentAirport);
-        const apiFlightKeys = new Set(apiArrivals.map(f => `${f.flight}-${f.origin}`));
-
-        // Add cached flights that aren't in API response
-        const mergedArrivals = [...apiArrivals];
-        cachedLanded.forEach(cached => {
-            const key = `${cached.flight}-${cached.origin}`;
-            if (!apiFlightKeys.has(key)) {
-                mergedArrivals.push(cached);
-            }
-        });
-
-        allArrivals = mergedArrivals;
+        allArrivals = await fetchSchedule();
         updateDisplay();
         lastRefreshTime = Date.now();
         setStatus(true);
