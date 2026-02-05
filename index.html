@@ -401,6 +401,34 @@
             color: var(--cyan);
         }
 
+        .refresh-btn {
+            background: transparent;
+            border: 1px solid var(--border);
+            color: var(--text-secondary);
+            padding: 2px 8px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            margin-left: 4px;
+            transition: all 0.15s ease;
+            vertical-align: middle;
+        }
+
+        .refresh-btn:hover {
+            background: var(--bg-card);
+            border-color: var(--cyan);
+            color: var(--cyan);
+        }
+
+        .refresh-btn:active {
+            transform: scale(0.95);
+        }
+
+        .refresh-btn.spinning {
+            animation: spin 0.8s linear infinite;
+            pointer-events: none;
+        }
+
         /* View Toggle */
         .view-toggle {
             display: flex;
@@ -1044,16 +1072,23 @@
             }
 
             .stats-panel {
-                padding: 16px 20px;
-                gap: 24px;
+                padding: 16px 12px;
+                gap: 16px;
+                flex-wrap: wrap;
+            }
+
+            .stat {
+                flex: 1;
+                min-width: 70px;
             }
 
             .stat-value {
-                font-size: 1.75rem;
+                font-size: 1.5rem;
             }
 
             .stat-label {
-                font-size: 0.6rem;
+                font-size: 0.55rem;
+                letter-spacing: 0.06em;
             }
 
             .weather-card {
@@ -1154,16 +1189,31 @@
 
         @media (max-width: 380px) {
             .stats-panel {
-                gap: 16px;
+                gap: 8px;
+                padding: 12px 8px;
+            }
+
+            .stat {
+                min-width: 60px;
             }
 
             .stat-value {
-                font-size: 1.5rem;
+                font-size: 1.25rem;
+            }
+
+            .stat-label {
+                font-size: 0.5rem;
+                letter-spacing: 0.04em;
             }
 
             .filter-btn, .type-btn {
                 padding: 5px 8px;
                 font-size: 0.7rem;
+            }
+
+            .airport-btn {
+                padding: 5px 8px;
+                font-size: 0.75rem;
             }
         }
     </style>
@@ -1246,7 +1296,12 @@
             </div>
         </div>
 
-        <p class="refresh-info">Updated <span id="last-update">-</span> · Next in <span id="countdown">--</span>s · <span class="shortcuts-hint" title="M: Toggle map | R: Refresh | F: Fit map | 1/2/3: Filters | Esc: Close modal">⌨ Shortcuts</span></p>
+        <p class="refresh-info">
+            Updated <span id="last-update">-</span> ·
+            Next in <span id="countdown">--</span>s
+            <button class="refresh-btn" id="refresh-btn" title="Refresh now (R)">↻</button>
+            · <span class="shortcuts-hint" title="M: Toggle map | R: Refresh | F: Fit map | 1/2/3: Filters | Esc: Close modal">⌨ Shortcuts</span>
+        </p>
 
         <div class="view-toggle" role="group" aria-label="View mode">
             <button class="view-btn active" data-view="list" aria-pressed="true">List</button>

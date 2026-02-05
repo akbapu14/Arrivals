@@ -400,6 +400,14 @@ function tick() {
 // Show loading state
 function setLoading(loading) {
     isLoading = loading;
+    const refreshBtn = document.getElementById('refresh-btn');
+    if (refreshBtn) {
+        if (loading) {
+            refreshBtn.classList.add('spinning');
+        } else {
+            refreshBtn.classList.remove('spinning');
+        }
+    }
 }
 
 // Generate skeleton loading cards
@@ -985,6 +993,17 @@ document.querySelectorAll('.view-btn').forEach(btn => {
     btn.addEventListener('click', () => {
         setMapView(btn.dataset.view);
     });
+});
+
+// Manual refresh button
+document.getElementById('refresh-btn')?.addEventListener('click', () => {
+    if (!isLoading) {
+        const btn = document.getElementById('refresh-btn');
+        btn.classList.add('spinning');
+        refresh().finally(() => {
+            btn.classList.remove('spinning');
+        });
+    }
 });
 
 // Weather functions
