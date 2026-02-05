@@ -257,17 +257,19 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
             arrivals.append(arrival)
 
-        # Prioritize widebody flights for altitude fetch
-        live_widebodies = [(i, a['flightId']) for i, a in enumerate(arrivals)
-                          if a['live'] and a['flightId'] and a['type'] in WIDEBODY_TYPES]
+        # Fetch positions for all live flights (prioritize widebodies first)
+        live_flights = [(i, a['flightId'], a['type'] in WIDEBODY_TYPES) for i, a in enumerate(arrivals)
+                        if a['live'] and a['flightId']]
+        # Sort so widebodies come first
+        live_flights.sort(key=lambda x: (not x[2], x[0]))
 
-        # Fetch flight positions in parallel (limit to 15)
+        # Fetch flight positions in parallel (limit to 25)
         def fetch_pos(item):
-            idx, flight_id = item
+            idx, flight_id, _ = item
             return idx, get_flight_position(flight_id)
 
         with ThreadPoolExecutor(max_workers=10) as executor:
-            futures = [executor.submit(fetch_pos, item) for item in live_widebodies[:15]]
+            futures = [executor.submit(fetch_pos, item) for item in live_flights[:25]]
             for future in as_completed(futures):
                 idx, pos = future.result()
                 if pos:

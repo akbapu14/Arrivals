@@ -123,17 +123,19 @@ class handler(BaseHTTPRequestHandler):
 
             arrivals.append(arrival)
 
-        # Prioritize widebody flights for altitude fetch
-        live_widebodies = [(i, a['flightId']) for i, a in enumerate(arrivals)
-                          if a['live'] and a['flightId'] and a['type'] in WIDEBODY_TYPES]
+        # Fetch positions for all live flights (prioritize widebodies first)
+        live_flights = [(i, a['flightId'], a['type'] in WIDEBODY_TYPES) for i, a in enumerate(arrivals)
+                        if a['live'] and a['flightId']]
+        # Sort so widebodies come first
+        live_flights.sort(key=lambda x: (not x[2], x[0]))
 
-        # Fetch flight details in parallel (limit to 10 for Vercel)
+        # Fetch flight details in parallel (limit to 15 for Vercel)
         def fetch_details(item):
-            idx, flight_id = item
+            idx, flight_id, _ = item
             return idx, get_flight_details(flight_id)
 
         with ThreadPoolExecutor(max_workers=10) as executor:
-            futures = [executor.submit(fetch_details, item) for item in live_widebodies[:10]]
+            futures = [executor.submit(fetch_details, item) for item in live_flights[:15]]
             for future in as_completed(futures):
                 idx, details = future.result()
                 if details:
