@@ -222,12 +222,17 @@ function tick() {
     });
 }
 
-// Show loading state (subtle indicator, no overlay)
+// Show loading state
 function setLoading(loading) {
     isLoading = loading;
-    const indicator = document.getElementById('loading-indicator');
+}
+
+// Update status indicator
+function setStatus(isLive) {
+    const indicator = document.getElementById('status-indicator');
     if (indicator) {
-        indicator.style.display = loading ? 'inline' : 'none';
+        indicator.textContent = isLive ? 'LIVE' : 'OFFLINE';
+        indicator.className = 'status-indicator ' + (isLive ? 'live' : 'offline');
     }
 }
 
@@ -255,8 +260,10 @@ async function refresh() {
         allArrivals = await fetchSchedule();
         updateDisplay();
         lastRefreshTime = Date.now();
+        setStatus(true);
     } catch (error) {
         console.error('Error:', error);
+        setStatus(false);
         document.getElementById('flights-container').innerHTML = `
             <div class="no-flights">
                 <p>Error loading schedule: ${error.message}</p>

@@ -125,18 +125,28 @@
             background: linear-gradient(90deg, #00d4ff, #7c3aed);
             border-color: transparent;
         }
-        .loading-dot {
+        .status-indicator {
             display: inline-block;
-            width: 8px;
-            height: 8px;
-            background: #00d4ff;
-            border-radius: 50%;
-            margin-left: 6px;
-            animation: pulse 0.8s ease-in-out infinite;
+            padding: 3px 10px;
+            border-radius: 12px;
+            font-size: 0.7rem;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+            margin-left: 8px;
+            vertical-align: middle;
         }
-        @keyframes pulse {
-            0%, 100% { opacity: 1; transform: scale(1); }
-            50% { opacity: 0.5; transform: scale(0.8); }
+        .status-indicator.live {
+            background: #22c55e;
+            color: #000;
+            animation: pulse-live 1.5s ease-in-out infinite;
+        }
+        .status-indicator.offline {
+            background: #666;
+            color: #fff;
+        }
+        @keyframes pulse-live {
+            0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.7); }
+            50% { opacity: 0.9; box-shadow: 0 0 12px 4px rgba(34, 197, 94, 0.5); }
         }
         .altitude {
             color: #22c55e;
@@ -342,7 +352,7 @@
 </head>
 <body>
     <h1 id="page-title">SFO Widebody Arrivals</h1>
-    <p class="subtitle">Live schedule from FlightRadar24</p>
+    <p class="subtitle">Live schedule from FlightRadar24 <span id="status-indicator" class="status-indicator offline">OFFLINE</span></p>
 
     <div class="airport-selector">
         <button class="airport-btn active" data-airport="SFO">SFO</button>
@@ -375,7 +385,7 @@
         <button class="filter-btn" data-filter="all">All</button>
     </div>
 
-    <p class="refresh-info">Last updated: <span id="last-update">-</span> <span id="loading-indicator" class="loading-dot" style="display:none;"></span> | Next refresh in <span id="countdown">--</span>s</p>
+    <p class="refresh-info">Last updated: <span id="last-update">-</span> | Next refresh in <span id="countdown">--</span>s</p>
 
     <div id="flights-container" class="flights-grid">
         <div class="loading">
