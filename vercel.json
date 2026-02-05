@@ -1,35 +1,7 @@
 {
-  "version": 2,
-  "builds": [
-    {
-      "src": "api/**/*.py",
-      "use": "@vercel/python"
-    },
-    {
-      "src": "index.html",
-      "use": "@vercel/static"
-    },
-    {
-      "src": "app.js",
-      "use": "@vercel/static"
-    }
-  ],
-  "routes": [
-    {
-      "src": "/api/schedule",
-      "dest": "/api/schedule.py"
-    },
-    {
-      "src": "/api/flight-details",
-      "dest": "/api/flight-details.py"
-    },
-    {
-      "src": "/api/weather",
-      "dest": "/api/weather.py"
-    },
-    {
-      "src": "/(.*)",
-      "dest": "/$1"
-    }
+  "rewrites": [
+    { "source": "/api/schedule", "destination": "/api/schedule.py" },
+    { "source": "/api/flight-details", "destination": "/api/flight-details.py" },
+    { "source": "/api/weather", "destination": "/api/weather.py" }
   ]
 }
