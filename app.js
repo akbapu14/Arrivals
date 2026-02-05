@@ -1138,6 +1138,49 @@ async function fetchWeather() {
     }
 }
 
+// Predict likely runway based on wind direction (simplified)
+function predictRunway(airport, windDirection) {
+    if (!windDirection && windDirection !== 0) return null;
+
+    // SFO runway configuration
+    // Main runways: 28L/28R (280°) and 10L/10R (100°)
+    // Typically use 28s for westerly winds, 10s for easterly
+    const runwayConfigs = {
+        'SFO': [
+            { heading: 280, name: '28L/28R', range: [190, 360] },
+            { heading: 100, name: '10L/10R', range: [0, 190] }
+        ],
+        'LAX': [
+            { heading: 250, name: '24L/24R/25L/25R', range: [160, 340] },
+            { heading: 70, name: '06L/06R/07L/07R', range: [340, 160] }
+        ],
+        'JFK': [
+            { heading: 310, name: '31L/31R', range: [220, 40] },
+            { heading: 40, name: '04L/04R', range: [310, 130] },
+            { heading: 220, name: '22L/22R', range: [130, 310] }
+        ],
+    };
+
+    const config = runwayConfigs[airport];
+    if (!config) return null;
+
+    // Find runway closest to wind direction (aircraft land into wind)
+    let bestRunway = config[0];
+    let minDiff = 360;
+
+    for (const rwy of config) {
+        // Calculate how well wind aligns with runway (want headwind)
+        let diff = Math.abs(windDirection - rwy.heading);
+        if (diff > 180) diff = 360 - diff;
+        if (diff < minDiff) {
+            minDiff = diff;
+            bestRunway = rwy;
+        }
+    }
+
+    return bestRunway.name;
+}
+
 function updateWeatherDisplay(data) {
     const card = document.getElementById('weather-card');
     if (!data || data.error) {
@@ -1211,6 +1254,20 @@ function updateWeatherDisplay(data) {
         document.getElementById('weather-wind').textContent = `${data.wind_speed} mph ${windDir}`;
     } else {
         document.getElementById('weather-wind').textContent = '-';
+    }
+
+    // Predicted runway (if we have wind direction in degrees)
+    const runwayEl = document.getElementById('weather-runway');
+    if (runwayEl && data.wind_deg !== undefined) {
+        const predictedRunway = predictRunway(currentAirport, data.wind_deg);
+        if (predictedRunway) {
+            runwayEl.textContent = predictedRunway;
+            runwayEl.parentElement.style.display = '';
+        } else {
+            runwayEl.parentElement.style.display = 'none';
+        }
+    } else if (runwayEl) {
+        runwayEl.parentElement.style.display = 'none';
     }
 }
 

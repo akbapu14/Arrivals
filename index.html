@@ -317,6 +317,7 @@
         .weather-value.good { color: var(--green); }
         .weather-value.moderate { color: var(--amber); }
         .weather-value.poor { color: var(--red); }
+        .weather-value.runway-value { color: var(--amber); font-weight: 600; }
 
         .weather-label {
             font-size: 0.65rem;
@@ -1314,6 +1315,10 @@
                 <div class="weather-item">
                     <div class="weather-value" id="weather-wind">-</div>
                     <div class="weather-label">Wind</div>
+                </div>
+                <div class="weather-item" style="display: none;">
+                    <div class="weather-value runway-value" id="weather-runway">-</div>
+                    <div class="weather-label">Likely Runway</div>
                 </div>
             </div>
         </div>
