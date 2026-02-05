@@ -385,6 +385,62 @@ function renderFlightCard(arrival) {
     `;
 }
 
+// Track current displayed flights for smart updates
+let displayedFlightIds = [];
+
+// Update cards in place without full re-render
+function updateCardsInPlace(container, sorted) {
+    const newFlightIds = sorted.map(a => a.flightId || a.flight);
+    const existingCards = container.querySelectorAll('.flight-card');
+
+    // If order or count changed significantly, do full re-render with fade
+    const orderChanged = newFlightIds.join(',') !== displayedFlightIds.join(',');
+
+    if (orderChanged || existingCards.length === 0) {
+        // Fade out existing cards
+        container.style.opacity = '0.7';
+
+        setTimeout(() => {
+            container.innerHTML = sorted.map(renderFlightCard).join('');
+            displayedFlightIds = newFlightIds;
+
+            // Fade back in
+            setTimeout(() => {
+                container.style.opacity = '1';
+            }, 50);
+        }, 150);
+    } else {
+        // Same flights, same order - update in place without flash
+        existingCards.forEach((card, index) => {
+            const arrival = sorted[index];
+            if (!arrival) return;
+
+            // Update dynamic values only
+            const etaEl = card.querySelector('.eta-countdown');
+            if (etaEl && arrival.eta) {
+                etaEl.textContent = formatETA(arrival.eta);
+                etaEl.dataset.eta = arrival.eta;
+            }
+
+            const altEl = card.querySelector('.altitude');
+            if (altEl && arrival.altitude) {
+                altEl.textContent = formatAltitude(arrival.altitude);
+            }
+
+            // Update distance if present
+            const distEl = card.querySelector('.distance');
+            if (distEl && arrival.lat && arrival.lon) {
+                const destCoords = AIRPORT_COORDS[currentAirport];
+                if (destCoords) {
+                    const distance = calculateDistance(arrival.lat, arrival.lon, destCoords[0], destCoords[1]);
+                    distEl.textContent = formatDistance(distance);
+                }
+            }
+        });
+        displayedFlightIds = newFlightIds;
+    }
+}
+
 // Apply filter
 function applyFilter(arrivals) {
     switch (currentFilter) {
@@ -487,7 +543,8 @@ function updateDisplay() {
             </div>
         `;
     } else {
-        container.innerHTML = sorted.map(renderFlightCard).join('');
+        // Smart update: only re-render if data changed significantly
+        updateCardsInPlace(container, sorted);
     }
 
     // Update map if in map view
@@ -677,8 +734,9 @@ function selectAirport(airport) {
         updateAirportMarker();
     }
 
-    // Clear arrivals to trigger skeleton loading
+    // Clear arrivals and displayed IDs to trigger fresh render
     allArrivals = [];
+    displayedFlightIds = [];
     refresh();
     fetchWeather();
 }
