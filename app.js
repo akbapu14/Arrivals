@@ -217,6 +217,31 @@ function formatDistance(nm) {
     return `${Math.round(nm).toLocaleString()} nm`;
 }
 
+// Estimate time to touchdown based on distance and altitude
+function estimateTimeToTouchdown(distanceNm, altitudeFt) {
+    if (!distanceNm || distanceNm <= 0) return null;
+
+    // Average approach speed varies by distance from airport
+    let avgSpeedKts;
+    if (distanceNm < 20) {
+        // Final approach - slower
+        avgSpeedKts = 160;
+    } else if (distanceNm < 100) {
+        // Initial approach / pattern
+        avgSpeedKts = 250;
+    } else {
+        // En route descent
+        avgSpeedKts = 400;
+    }
+
+    const timeHours = distanceNm / avgSpeedKts;
+    const timeMinutes = Math.round(timeHours * 60);
+
+    if (timeMinutes < 1) return '< 1 min';
+    if (timeMinutes === 1) return '1 min';
+    return `${timeMinutes} min`;
+}
+
 // Check if flight is on approach (below 10,000 ft)
 function isOnApproach(arrival) {
     return arrival.live && arrival.altitude && arrival.altitude < 10000;
@@ -239,8 +264,9 @@ function renderFlightCard(arrival) {
     const typeName = arrival.typeName || arrival.type;
     const clickHandler = clickable ? `onclick="openFlightModal('${arrival.flightId}', '${arrival.flight}')"` : '';
 
-    // Calculate distance for live flights
+    // Calculate distance and ETA for live flights
     let distanceHtml = '';
+    let ttdHtml = ''; // Time to touchdown
     if (live && arrival.lat && arrival.lon) {
         const destCoords = AIRPORT_COORDS[currentAirport];
         if (destCoords) {
@@ -251,6 +277,19 @@ function renderFlightCard(arrival) {
                     <span class="detail-value distance">${formatDistance(distance)}</span>
                 </div>
             `;
+
+            // Show time to touchdown for approaching flights (< 200 nm)
+            if (distance < 200) {
+                const ttd = estimateTimeToTouchdown(distance, arrival.altitude);
+                if (ttd) {
+                    ttdHtml = `
+                        <div class="detail">
+                            <span class="detail-label">Est. Touch</span>
+                            <span class="detail-value ttd">${ttd}</span>
+                        </div>
+                    `;
+                }
+            }
         }
     }
 
@@ -300,7 +339,8 @@ function renderFlightCard(arrival) {
                 </div>
                 ${altitudeHtml}
                 ${distanceHtml}
-                ${!altitudeHtml && !landed && !distanceHtml ? `<div class="detail">
+                ${ttdHtml}
+                ${!altitudeHtml && !landed && !distanceHtml && !ttdHtml ? `<div class="detail">
                     <span class="detail-label">Status</span>
                     <span class="detail-value"><span class="status-badge ${statusClass}">${arrival.status || 'Scheduled'}</span></span>
                 </div>` : ''}
