@@ -71,6 +71,28 @@ function isLanded(arrival) {
     return arrival.status?.toLowerCase().includes('landed');
 }
 
+// Check if flight landed within last N hours
+function landedWithinHours(arrival, hours) {
+    if (!isLanded(arrival)) return false;
+    // Status format: "Landed 16:30"
+    const match = arrival.status?.match(/landed\s+(\d{1,2}):(\d{2})/i);
+    if (!match) return true; // If can't parse, include it
+
+    const landedHour = parseInt(match[1]);
+    const landedMin = parseInt(match[2]);
+    const now = new Date();
+    const landed = new Date();
+    landed.setHours(landedHour, landedMin, 0, 0);
+
+    // If landed time is in the future, it was yesterday
+    if (landed > now) {
+        landed.setDate(landed.getDate() - 1);
+    }
+
+    const hoursSinceLanded = (now - landed) / (1000 * 60 * 60);
+    return hoursSinceLanded <= hours;
+}
+
 // Check if flight is airborne
 function isAirborne(arrival) {
     return arrival.live === true;
@@ -110,6 +132,15 @@ function renderFlightCard(arrival) {
         </div>
     ` : '';
 
+    // For landed flights, show landed time instead of ETA
+    const etaLabel = landed ? 'Landed' : 'ETA';
+    const etaValue = landed ? (arrival.status?.replace(/landed\s*/i, '') || '-') : formatTime(arrival.eta);
+    const countdownHtml = landed ? '' : `
+        <div class="detail">
+            <span class="detail-label">In</span>
+            <span class="detail-value eta-countdown" data-eta="${arrival.eta || ''}">${formatETA(arrival.eta)}</span>
+        </div>`;
+
     return `
         <div class="${cardClass}">
             <div class="flight-header">
@@ -121,19 +152,16 @@ function renderFlightCard(arrival) {
             </div>
             <div class="flight-details">
                 <div class="detail">
-                    <span class="detail-label">ETA</span>
-                    <span class="detail-value eta">${formatTime(arrival.eta)}</span>
+                    <span class="detail-label">${etaLabel}</span>
+                    <span class="detail-value eta">${etaValue}</span>
                 </div>
-                <div class="detail">
-                    <span class="detail-label">In</span>
-                    <span class="detail-value eta-countdown" data-eta="${arrival.eta || ''}">${formatETA(arrival.eta)}</span>
-                </div>
+                ${countdownHtml}
                 <div class="detail">
                     <span class="detail-label">From</span>
                     <span class="detail-value origin">${arrival.origin}</span>
                 </div>
                 ${altitudeHtml}
-                ${!altitudeHtml ? `<div class="detail">
+                ${!altitudeHtml && !landed ? `<div class="detail">
                     <span class="detail-label">Status</span>
                     <span class="detail-value"><span class="status-badge ${statusClass}">${arrival.status || 'Scheduled'}</span></span>
                 </div>` : ''}
@@ -152,7 +180,7 @@ function applyFilter(arrivals) {
         case 'upcoming':
             return arrivals.filter(isUpcoming);
         case 'landed':
-            return arrivals.filter(isLanded);
+            return arrivals.filter(a => landedWithinHours(a, 12));
         default:
             return arrivals;
     }
