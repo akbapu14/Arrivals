@@ -184,9 +184,12 @@ function updateDisplay() {
     const sorted = [...filtered].sort((a, b) => (a.eta || Infinity) - (b.eta || Infinity));
 
     if (sorted.length === 0) {
+        let msg = 'No widebody arrivals';
+        if (currentFilter === 'upcoming') msg = 'No upcoming widebody arrivals';
+        if (currentFilter === 'landed') msg = 'No recently landed widebodies';
         container.innerHTML = `
             <div class="no-flights">
-                <p>No widebody arrivals ${currentFilter === 'all' ? '' : 'matching filter'}</p>
+                <p>${msg}</p>
             </div>
         `;
     } else {
