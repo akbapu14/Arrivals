@@ -198,16 +198,23 @@ function formatAltitude(ft) {
     return `${Math.round(ft).toLocaleString()} ft`;
 }
 
+// Check if flight is on approach (below 10,000 ft)
+function isOnApproach(arrival) {
+    return arrival.live && arrival.altitude && arrival.altitude < 10000;
+}
+
 // Render flight card
 function renderFlightCard(arrival) {
     const landed = isLanded(arrival);
     const live = isAirborne(arrival);
     const clickable = live && arrival.flightId;
+    const onApproach = isOnApproach(arrival);
 
     let cardClass = 'flight-card';
     if (live) cardClass += ' live';
     if (landed) cardClass += ' landed';
     if (clickable) cardClass += ' clickable';
+    if (onApproach) cardClass += ' on-approach';
 
     const statusClass = getStatusClass(arrival.statusColor);
     const typeName = arrival.typeName || arrival.type;
@@ -230,12 +237,20 @@ function renderFlightCard(arrival) {
             <span class="detail-value eta-countdown" data-eta="${arrival.eta || ''}">${formatETA(arrival.eta)}</span>
         </div>`;
 
+    // Status badge
+    let statusBadgeHtml = '';
+    if (onApproach) {
+        statusBadgeHtml = '<span class="status-badge approach-badge">APPROACH</span>';
+    } else if (live) {
+        statusBadgeHtml = '<span class="status-badge status-green">LIVE</span>';
+    }
+
     return `
         <div class="${cardClass}" ${clickHandler}>
             <div class="flight-header">
                 <div>
                     <span class="flight-number">${arrival.flight}</span>
-                    ${live ? '<span class="status-badge status-green">LIVE</span>' : ''}
+                    ${statusBadgeHtml}
                 </div>
                 <span class="aircraft-type">${typeName}</span>
             </div>
@@ -280,16 +295,27 @@ function updateDisplay() {
     const container = document.getElementById('flights-container');
     const totalCount = document.getElementById('total-count');
     const airborneCount = document.getElementById('airborne-count');
+    const approachCountEl = document.getElementById('approach-count');
     const nextEta = document.getElementById('next-eta');
     const lastUpdate = document.getElementById('last-update');
 
     const widebodies = filterAircraft(allArrivals);
     const upcoming = widebodies.filter(isUpcoming);
     const airborne = widebodies.filter(isAirborne);
+    const onApproachFlights = widebodies.filter(isOnApproach);
 
     // Update stats
     totalCount.textContent = widebodies.length;
     airborneCount.textContent = airborne.length;
+    approachCountEl.textContent = onApproachFlights.length;
+
+    // Add pulsing animation if there are flights on approach
+    if (onApproachFlights.length > 0) {
+        approachCountEl.classList.add('active');
+    } else {
+        approachCountEl.classList.remove('active');
+    }
+
     lastUpdate.textContent = new Date().toLocaleTimeString();
 
     // Next arrival
@@ -1104,6 +1130,29 @@ window.addEventListener('offline', () => {
     if (indicator) {
         indicator.textContent = 'Offline';
         indicator.className = 'status-indicator offline';
+    }
+});
+
+// Page visibility - pause updates when tab is hidden
+let wasHidden = false;
+document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+        wasHidden = true;
+        console.log('Tab hidden - pausing updates');
+        if (refreshTimer) {
+            clearTimeout(refreshTimer);
+            refreshTimer = null;
+        }
+    } else if (wasHidden) {
+        wasHidden = false;
+        console.log('Tab visible - resuming updates');
+        // Refresh immediately if data is stale (> 1 minute old)
+        const elapsed = Date.now() - lastRefreshTime;
+        if (elapsed > 60000) {
+            refresh();
+        } else {
+            scheduleNextRefresh();
+        }
     }
 });
 
