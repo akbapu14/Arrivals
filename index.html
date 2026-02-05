@@ -99,6 +99,39 @@
             border-color: transparent;
             color: #fff;
         }
+        .custom-airport-input {
+            background: rgba(255, 255, 255, 0.08);
+            border: 2px solid rgba(255, 255, 255, 0.15);
+            color: #fff;
+            padding: 8px 12px;
+            border-radius: 20px;
+            font-size: 0.95rem;
+            font-weight: 600;
+            width: 90px;
+            text-transform: uppercase;
+            text-align: center;
+            transition: all 0.2s;
+        }
+        .custom-airport-input::placeholder {
+            color: #666;
+            text-transform: none;
+        }
+        .custom-airport-input:focus {
+            outline: none;
+            border-color: #00d4ff;
+            background: rgba(255, 255, 255, 0.12);
+        }
+        .custom-airport-input.active {
+            background: linear-gradient(90deg, #00d4ff, #7c3aed);
+            border-color: transparent;
+        }
+        .flights-grid.loading-state {
+            opacity: 0.5;
+            pointer-events: none;
+        }
+        .altitude {
+            color: #22c55e;
+        }
         .refresh-info {
             text-align: center;
             color: #666;
@@ -216,6 +249,7 @@
         <button class="airport-btn" data-airport="EWR">EWR</button>
         <button class="airport-btn" data-airport="DFW">DFW</button>
         <button class="airport-btn" data-airport="SAN">SAN</button>
+        <input type="text" id="custom-airport" class="custom-airport-input" placeholder="Other..." maxlength="4">
     </div>
 
     <div class="stats">

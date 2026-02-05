@@ -1,15 +1,10 @@
-#!/usr/bin/env python3
-"""Simple proxy server for SFO arrivals dashboard."""
+"""Vercel serverless function for airport arrivals schedule."""
 
-import http.server
+from http.server import BaseHTTPRequestHandler
 import json
 import urllib.request
-import urllib.error
 import urllib.parse
 import time
-
-PORT = 8080
-BOUNDS = "38.5,36.5,-123.5,-121"
 
 HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
@@ -17,8 +12,8 @@ HEADERS = {
     'Referer': 'https://www.flightradar24.com/',
 }
 
-def get_flight_altitude(flight_id):
-    """Fetch live flight altitude from FR24."""
+def get_flight_details(flight_id):
+    """Fetch live flight details including altitude."""
     if not flight_id:
         return None
     try:
@@ -38,54 +33,13 @@ def get_flight_altitude(flight_id):
     return None
 
 
-class Handler(http.server.SimpleHTTPRequestHandler):
+class handler(BaseHTTPRequestHandler):
     def do_GET(self):
+        # Parse query params
         parsed = urllib.parse.urlparse(self.path)
-        if parsed.path == '/api/aircraft':
-            self.proxy_aircraft()
-        elif parsed.path == '/api/schedule':
-            query = urllib.parse.parse_qs(parsed.query)
-            airport = query.get('airport', ['SFO'])[0]
-            self.get_schedule(airport)
-        else:
-            super().do_GET()
+        query = urllib.parse.parse_qs(parsed.query)
+        airport = query.get('airport', ['SFO'])[0].upper()
 
-    def proxy_aircraft(self):
-        """Fetch live aircraft from FlightRadar24."""
-        url = f"https://data-cloud.flightradar24.com/zones/fcgi/feed.js?faa=1&bounds={BOUNDS}&satellite=1&mlat=1&flarm=1&adsb=1&gnd=0&air=1&vehicles=0&estimated=1&maxage=14400&gliders=0&stats=0"
-
-        try:
-            req = urllib.request.Request(url, headers=HEADERS)
-            with urllib.request.urlopen(req, timeout=10) as response:
-                raw = json.loads(response.read())
-
-            aircraft = []
-            for fid, data in raw.items():
-                if not isinstance(data, list) or len(data) < 17:
-                    continue
-                aircraft.append({
-                    'id': fid,
-                    'lat': data[1],
-                    'lon': data[2],
-                    'track': data[3],
-                    'altitude': data[4],
-                    'speed': data[5],
-                    'type': data[8],
-                    'registration': data[9],
-                    'origin': data[11],
-                    'destination': data[12],
-                    'flight': data[13],
-                    'onGround': data[14],
-                    'vspeed': data[15],
-                    'callsign': data[16] if len(data) > 16 else data[13],
-                })
-
-            self.send_json({'aircraft': aircraft, 'source': 'flightradar24'})
-        except Exception as e:
-            self.send_error(500, str(e))
-
-    def get_schedule(self, airport='SFO'):
-        """Fetch scheduled arrivals from FlightRadar24."""
         timestamp = int(time.time())
         all_flights = []
 
@@ -103,7 +57,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
         # Parse into cleaner format
         arrivals = []
-        live_flights = []
+        live_flights_to_fetch = []
 
         for flight in all_flights:
             f = flight.get('flight') or {}
@@ -135,28 +89,22 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 'altitude': None,
             }
 
-            # Queue live flights for altitude (limit to 10)
-            if arrival['live'] and arrival['flightId'] and len(live_flights) < 10:
-                live_flights.append((len(arrivals), arrival['flightId']))
+            # Queue live flights for altitude fetch (limit to first 10 to avoid timeout)
+            if arrival['live'] and arrival['flightId'] and len(live_flights_to_fetch) < 10:
+                live_flights_to_fetch.append((len(arrivals), arrival['flightId']))
 
             arrivals.append(arrival)
 
-        # Fetch altitudes for live flights
-        for idx, flight_id in live_flights:
-            alt = get_flight_altitude(flight_id)
+        # Fetch altitude for live flights
+        for idx, flight_id in live_flights_to_fetch:
+            alt = get_flight_details(flight_id)
             if alt:
                 arrivals[idx]['altitude'] = alt
 
-        self.send_json({'arrivals': arrivals, 'source': 'flightradar24'})
-
-    def send_json(self, data):
+        # Send response
         self.send_response(200)
         self.send_header('Content-Type', 'application/json')
         self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Cache-Control', 'public, max-age=30')
         self.end_headers()
-        self.wfile.write(json.dumps(data).encode())
-
-if __name__ == '__main__':
-    print(f"Starting Widebody Arrivals server on http://localhost:{PORT}")
-    print("Open http://localhost:8080 in your browser")
-    http.server.HTTPServer(('', PORT), Handler).serve_forever()
+        self.wfile.write(json.dumps({'arrivals': arrivals, 'source': 'flightradar24'}).encode())

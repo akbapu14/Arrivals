@@ -12,6 +12,7 @@ let allArrivals = [];
 let currentFilter = 'upcoming';
 let currentAirport = 'SFO';
 let lastRefreshTime = Date.now();
+let isLoading = false;
 const REFRESH_INTERVAL = 60; // seconds (schedule doesn't change fast)
 
 // Fetch schedule from server
@@ -79,6 +80,12 @@ function isUpcoming(arrival) {
     return eta * 1000 > Date.now();
 }
 
+// Format altitude
+function formatAltitude(ft) {
+    if (!ft || ft <= 0) return '-';
+    return `${Math.round(ft).toLocaleString()} ft`;
+}
+
 // Render flight card
 function renderFlightCard(arrival) {
     const landed = isLanded(arrival);
@@ -90,6 +97,14 @@ function renderFlightCard(arrival) {
 
     const statusClass = getStatusClass(arrival.statusColor);
     const typeName = arrival.typeName || arrival.type;
+
+    // Show altitude for live flights
+    const altitudeHtml = live && arrival.altitude ? `
+        <div class="detail">
+            <span class="detail-label">Altitude</span>
+            <span class="detail-value altitude">${formatAltitude(arrival.altitude)}</span>
+        </div>
+    ` : '';
 
     return `
         <div class="${cardClass}">
@@ -113,10 +128,11 @@ function renderFlightCard(arrival) {
                     <span class="detail-label">From</span>
                     <span class="detail-value origin">${arrival.origin}</span>
                 </div>
-                <div class="detail">
+                ${altitudeHtml}
+                ${!altitudeHtml ? `<div class="detail">
                     <span class="detail-label">Status</span>
                     <span class="detail-value"><span class="status-badge ${statusClass}">${arrival.status || 'Scheduled'}</span></span>
-                </div>
+                </div>` : ''}
                 <div class="detail" style="grid-column: span 2;">
                     <span class="detail-label">Origin</span>
                     <span class="detail-value" style="font-size: 0.9rem; color: #888;">${arrival.originName || ''}</span>
@@ -192,8 +208,20 @@ function tick() {
     });
 }
 
+// Show loading state
+function setLoading(loading) {
+    isLoading = loading;
+    const container = document.getElementById('flights-container');
+    if (loading) {
+        container.classList.add('loading-state');
+    } else {
+        container.classList.remove('loading-state');
+    }
+}
+
 // Main refresh
 async function refresh() {
+    setLoading(true);
     try {
         allArrivals = await fetchSchedule();
         updateDisplay();
@@ -206,6 +234,8 @@ async function refresh() {
                 <p style="margin-top: 10px;">Retrying...</p>
             </div>
         `;
+    } finally {
+        setLoading(false);
     }
 }
 
@@ -220,14 +250,36 @@ document.querySelectorAll('.filter-btn').forEach(btn => {
 });
 
 // Airport selector handlers
+function selectAirport(airport) {
+    currentAirport = airport.toUpperCase();
+    document.getElementById('page-title').textContent = `${currentAirport} Widebody Arrivals`;
+    document.title = `${currentAirport} Widebody Arrivals`;
+    refresh();
+}
+
 document.querySelectorAll('.airport-btn').forEach(btn => {
     btn.addEventListener('click', () => {
         document.querySelectorAll('.airport-btn').forEach(b => b.classList.remove('active'));
+        document.getElementById('custom-airport').classList.remove('active');
+        document.getElementById('custom-airport').value = '';
         btn.classList.add('active');
-        currentAirport = btn.dataset.airport;
-        document.getElementById('page-title').textContent = `${currentAirport} Widebody Arrivals`;
-        refresh();
+        selectAirport(btn.dataset.airport);
     });
+});
+
+// Custom airport input handler
+const customInput = document.getElementById('custom-airport');
+customInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && customInput.value.trim().length >= 3) {
+        document.querySelectorAll('.airport-btn').forEach(b => b.classList.remove('active'));
+        customInput.classList.add('active');
+        selectAirport(customInput.value.trim());
+        customInput.blur();
+    }
+});
+
+customInput.addEventListener('focus', () => {
+    customInput.select();
 });
 
 // Start

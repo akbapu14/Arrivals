@@ -1,0 +1,13 @@
+{
+  "name": "sfo-arrivals",
+  "version": "1.0.0",
+  "description": "Widebody aircraft arrivals dashboard",
+  "scripts": {
+    "dev": "python3 server.py",
+    "test": "playwright test",
+    "test:ui": "playwright test --ui"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.40.0"
+  }
+}
