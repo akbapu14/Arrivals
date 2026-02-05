@@ -7,6 +7,7 @@ import urllib.request
 import urllib.error
 import urllib.parse
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 PORT = 8080
 BOUNDS = "38.5,36.5,-123.5,-121"
@@ -32,7 +33,7 @@ def get_flight_altitude(flight_id):
     try:
         url = f"https://data-live.flightradar24.com/clickhandler/?flight={flight_id}"
         req = urllib.request.Request(url, headers=HEADERS)
-        with urllib.request.urlopen(req, timeout=5) as response:
+        with urllib.request.urlopen(req, timeout=3) as response:
             data = json.loads(response.read())
             trail = data.get('trail', [])
             if trail and len(trail) > 0:
@@ -97,8 +98,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         timestamp = int(time.time())
         all_flights = []
 
-        # Fetch multiple pages
-        for page in range(1, 9):
+        # Fetch multiple pages (5 pages = 500 flights)
+        for page in range(1, 6):
             url = f"https://api.flightradar24.com/common/v1/airport.json?code={airport}&plugin=schedule&plugin-setting%5Bschedule%5D%5Bmode%5D=arrivals&plugin-setting%5Bschedule%5D%5Btimestamp%5D={timestamp}&limit=100&page={page}"
             try:
                 req = urllib.request.Request(url, headers=HEADERS)
@@ -148,11 +149,17 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         live_widebodies = [(i, a['flightId']) for i, a in enumerate(arrivals)
                           if a['live'] and a['flightId'] and a['type'] in WIDEBODY_TYPES]
 
-        # Fetch altitudes for live widebodies (limit to 15)
-        for idx, flight_id in live_widebodies[:15]:
-            alt = get_flight_altitude(flight_id)
-            if alt:
-                arrivals[idx]['altitude'] = alt
+        # Fetch altitudes in parallel (limit to 15)
+        def fetch_alt(item):
+            idx, flight_id = item
+            return idx, get_flight_altitude(flight_id)
+
+        with ThreadPoolExecutor(max_workers=10) as executor:
+            futures = [executor.submit(fetch_alt, item) for item in live_widebodies[:15]]
+            for future in as_completed(futures):
+                idx, alt = future.result()
+                if alt:
+                    arrivals[idx]['altitude'] = alt
 
         self.send_json({'arrivals': arrivals, 'source': 'flightradar24'})
 

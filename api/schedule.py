@@ -5,6 +5,7 @@ import json
 import urllib.request
 import urllib.parse
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
@@ -27,7 +28,7 @@ def get_flight_details(flight_id):
     try:
         url = f"https://data-live.flightradar24.com/clickhandler/?flight={flight_id}"
         req = urllib.request.Request(url, headers=HEADERS)
-        with urllib.request.urlopen(req, timeout=5) as response:
+        with urllib.request.urlopen(req, timeout=3) as response:
             data = json.loads(response.read())
             trail = data.get('trail', [])
             if trail and len(trail) > 0:
@@ -51,8 +52,8 @@ class handler(BaseHTTPRequestHandler):
         timestamp = int(time.time())
         all_flights = []
 
-        # Fetch multiple pages
-        for page in range(1, 9):
+        # Fetch multiple pages (5 pages = 500 flights)
+        for page in range(1, 6):
             url = f"https://api.flightradar24.com/common/v1/airport.json?code={airport}&plugin=schedule&plugin-setting%5Bschedule%5D%5Bmode%5D=arrivals&plugin-setting%5Bschedule%5D%5Btimestamp%5D={timestamp}&limit=100&page={page}"
             try:
                 req = urllib.request.Request(url, headers=HEADERS)
@@ -102,11 +103,17 @@ class handler(BaseHTTPRequestHandler):
         live_widebodies = [(i, a['flightId']) for i, a in enumerate(arrivals)
                           if a['live'] and a['flightId'] and a['type'] in WIDEBODY_TYPES]
 
-        # Fetch altitude for live widebodies (limit to 10 for Vercel timeout)
-        for idx, flight_id in live_widebodies[:10]:
-            alt = get_flight_details(flight_id)
-            if alt:
-                arrivals[idx]['altitude'] = alt
+        # Fetch altitudes in parallel (limit to 10 for Vercel)
+        def fetch_alt(item):
+            idx, flight_id = item
+            return idx, get_flight_details(flight_id)
+
+        with ThreadPoolExecutor(max_workers=10) as executor:
+            futures = [executor.submit(fetch_alt, item) for item in live_widebodies[:10]]
+            for future in as_completed(futures):
+                idx, alt = future.result()
+                if alt:
+                    arrivals[idx]['altitude'] = alt
 
         # Send response
         self.send_response(200)
