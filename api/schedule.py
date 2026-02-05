@@ -134,8 +134,8 @@ class handler(BaseHTTPRequestHandler):
             idx, flight_id, _ = item
             return idx, get_flight_details(flight_id)
 
-        with ThreadPoolExecutor(max_workers=10) as executor:
-            futures = [executor.submit(fetch_details, item) for item in live_flights[:15]]
+        with ThreadPoolExecutor(max_workers=15) as executor:
+            futures = [executor.submit(fetch_details, item) for item in live_flights[:40]]
             for future in as_completed(futures):
                 idx, details = future.result()
                 if details:

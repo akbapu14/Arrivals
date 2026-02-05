@@ -268,8 +268,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             idx, flight_id, _ = item
             return idx, get_flight_position(flight_id)
 
-        with ThreadPoolExecutor(max_workers=10) as executor:
-            futures = [executor.submit(fetch_pos, item) for item in live_flights[:25]]
+        with ThreadPoolExecutor(max_workers=15) as executor:
+            futures = [executor.submit(fetch_pos, item) for item in live_flights[:50]]
             for future in as_completed(futures):
                 idx, pos = future.result()
                 if pos:
