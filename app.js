@@ -1116,7 +1116,6 @@ function updateMapMarkers() {
         mapMarkers.push(marker);
 
         // Draw inbound path line from flight to destination
-        const destCoords = AIRPORT_COORDS[currentAirport];
         if (destCoords) {
             const pathLine = L.polyline(
                 [[flight.lat, flight.lon], destCoords],
