@@ -579,10 +579,42 @@ function renderFlightModal(data) {
     }
 }
 
-// Close modal on escape key
+// Keyboard shortcuts
 document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') {
-        closeFlightModal();
+    // Don't trigger shortcuts when typing in input
+    if (e.target.tagName === 'INPUT') return;
+
+    switch (e.key) {
+        case 'Escape':
+            closeFlightModal();
+            break;
+        case 'm':
+        case 'M':
+            // Toggle map/list view
+            setMapView(currentView === 'map' ? 'list' : 'map');
+            break;
+        case 'r':
+        case 'R':
+            // Refresh data
+            if (!isLoading) refresh();
+            break;
+        case 'f':
+        case 'F':
+            // Fit map to show all flights
+            if (currentView === 'map') fitMapToFlights();
+            break;
+        case '1':
+            // Switch to upcoming filter
+            document.querySelector('.filter-btn[data-filter="upcoming"]')?.click();
+            break;
+        case '2':
+            // Switch to landed filter
+            document.querySelector('.filter-btn[data-filter="landed"]')?.click();
+            break;
+        case '3':
+            // Switch to all filter
+            document.querySelector('.filter-btn[data-filter="all"]')?.click();
+            break;
     }
 });
 
@@ -632,6 +664,20 @@ function createPlaneIcon(heading, isWidebody) {
         iconSize: [24, 24],
         iconAnchor: [12, 12]
     });
+}
+
+function fitMapToFlights() {
+    if (!map || mapMarkers.length === 0) return;
+
+    const bounds = L.latLngBounds(mapMarkers.map(m => m.getLatLng()));
+
+    // Include airport in bounds
+    const airportCoords = AIRPORT_COORDS[currentAirport];
+    if (airportCoords) {
+        bounds.extend(airportCoords);
+    }
+
+    map.fitBounds(bounds, { padding: [50, 50], maxZoom: 8 });
 }
 
 function updateMapMarkers() {
