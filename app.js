@@ -848,6 +848,20 @@ function renderFlightModal(data) {
     }
 }
 
+// Help modal functions
+function openHelpModal() {
+    const modal = document.getElementById('help-modal');
+    modal.classList.add('active');
+    document.body.style.overflow = 'hidden';
+}
+
+function closeHelpModal(event) {
+    if (event && event.target !== event.currentTarget) return;
+    const modal = document.getElementById('help-modal');
+    modal.classList.remove('active');
+    document.body.style.overflow = '';
+}
+
 // Keyboard shortcuts
 document.addEventListener('keydown', (e) => {
     // Don't trigger shortcuts when typing in input
@@ -856,6 +870,7 @@ document.addEventListener('keydown', (e) => {
     switch (e.key) {
         case 'Escape':
             closeFlightModal();
+            closeHelpModal();
             break;
         case 'm':
         case 'M':
@@ -883,6 +898,10 @@ document.addEventListener('keydown', (e) => {
         case '3':
             // Switch to all filter
             document.querySelector('.filter-btn[data-filter="all"]')?.click();
+            break;
+        case '?':
+            // Show help
+            openHelpModal();
             break;
     }
 });

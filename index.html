@@ -393,13 +393,14 @@
         }
 
         .shortcuts-hint {
-            cursor: help;
+            cursor: pointer;
             border-bottom: 1px dotted var(--text-muted);
             transition: color 0.15s ease;
         }
 
         .shortcuts-hint:hover {
             color: var(--cyan);
+            border-bottom-color: var(--cyan);
         }
 
         .refresh-btn {
@@ -972,6 +973,66 @@
             margin-top: 16px;
         }
 
+        /* Help Modal */
+        .help-modal {
+            max-width: 360px;
+        }
+
+        .help-section {
+            margin-bottom: 20px;
+        }
+
+        .help-section:last-child {
+            margin-bottom: 0;
+        }
+
+        .help-shortcuts {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .help-shortcut {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .help-shortcut kbd {
+            background: var(--bg-elevated);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            padding: 4px 8px;
+            font-family: var(--font-mono);
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: var(--cyan);
+            min-width: 32px;
+            text-align: center;
+        }
+
+        .help-shortcut span {
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+        }
+
+        .help-about {
+            text-align: center;
+            padding-top: 16px;
+            border-top: 1px solid var(--border);
+        }
+
+        .help-about p {
+            margin: 4px 0;
+            font-size: 0.85rem;
+            color: var(--text-primary);
+        }
+
+        .help-about .help-muted {
+            color: var(--text-muted);
+            font-size: 0.75rem;
+        }
+
         /* Map Markers */
         .plane-marker {
             font-size: 22px;
@@ -1340,7 +1401,7 @@
             Updated <span id="last-update">-</span> ·
             Next in <span id="countdown">--</span>s
             <button class="refresh-btn" id="refresh-btn" title="Refresh now (R)">↻</button>
-            · <span class="shortcuts-hint" title="M: Toggle map | R: Refresh | F: Fit map | 1/2/3: Filters | Esc: Close modal">⌨ Shortcuts</span>
+            · <span class="shortcuts-hint" onclick="openHelpModal()" title="Press ? for keyboard shortcuts">⌨ Shortcuts</span>
         </p>
 
         <div class="view-toggle" role="group" aria-label="View mode">
@@ -1354,6 +1415,37 @@
             <div class="loading">
                 <div class="spinner"></div>
                 <p>Loading arrivals...</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Help Modal -->
+    <div id="help-modal" class="modal-overlay" onclick="closeHelpModal(event)" role="dialog" aria-modal="true" aria-labelledby="help-modal-title">
+        <div class="modal help-modal" onclick="event.stopPropagation()">
+            <div class="modal-header">
+                <h2 class="modal-title" id="help-modal-title">Keyboard Shortcuts</h2>
+                <button class="modal-close" onclick="closeHelpModal()" aria-label="Close help">×</button>
+            </div>
+            <div class="modal-body">
+                <div class="help-section">
+                    <div class="help-shortcuts">
+                        <div class="help-shortcut"><kbd>M</kbd><span>Toggle map/list view</span></div>
+                        <div class="help-shortcut"><kbd>R</kbd><span>Refresh data</span></div>
+                        <div class="help-shortcut"><kbd>F</kbd><span>Fit map to flights</span></div>
+                        <div class="help-shortcut"><kbd>1</kbd><span>Show upcoming</span></div>
+                        <div class="help-shortcut"><kbd>2</kbd><span>Show landed</span></div>
+                        <div class="help-shortcut"><kbd>3</kbd><span>Show all</span></div>
+                        <div class="help-shortcut"><kbd>Esc</kbd><span>Close modal</span></div>
+                        <div class="help-shortcut"><kbd>?</kbd><span>Show this help</span></div>
+                    </div>
+                </div>
+                <div class="help-section">
+                    <div class="help-about">
+                        <p>AvGeek v1.0</p>
+                        <p class="help-muted">Live flight data from FlightRadar24</p>
+                        <p class="help-muted">Weather from OpenWeatherMap</p>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
