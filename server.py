@@ -457,8 +457,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             'timestamp': now
         }
 
-        # Enrich with positions (fewer for cold fetch)
-        arrivals = enrich_with_positions(arrivals, limit=25)
+        # Enrich with positions (fewer for cold fetch - just top 15)
+        arrivals = enrich_with_positions(arrivals, limit=15)
 
         self.send_json({
             'arrivals': arrivals,
