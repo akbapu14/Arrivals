@@ -75,6 +75,11 @@ def get_flight_position(flight_id, force_refresh=False):
         with urllib.request.urlopen(req, timeout=5) as response:
             data = json.loads(response.read())
             trail = data.get('trail', [])
+
+            # Get live ETA from FR24's real-time tracking
+            time_data = data.get('time', {})
+            live_eta = time_data.get('estimated', {}).get('arrival') or time_data.get('other', {}).get('eta')
+
             if trail and len(trail) > 0:
                 latest = trail[0]
                 result = None
@@ -84,7 +89,8 @@ def get_flight_position(flight_id, force_refresh=False):
                         'lat': latest.get('lat'),
                         'lon': latest.get('lng'),
                         'heading': latest.get('hd'),
-                        'speed': latest.get('spd')
+                        'speed': latest.get('spd'),
+                        'live_eta': live_eta
                     }
                 elif isinstance(latest, list) and len(latest) >= 5:
                     result = {
@@ -92,7 +98,8 @@ def get_flight_position(flight_id, force_refresh=False):
                         'lat': latest[0],
                         'lon': latest[1],
                         'heading': latest[4] if len(latest) > 4 else None,
-                        'speed': latest[3] if len(latest) > 3 else None
+                        'speed': latest[3] if len(latest) > 3 else None,
+                        'live_eta': live_eta
                     }
                 if result and result.get('lat') and result.get('lon'):
                     position_cache[flight_id] = {'data': result, 'timestamp': now}
@@ -210,6 +217,9 @@ def enrich_with_positions(arrivals, limit=50):
                 arrivals[i]['lat'] = pos.get('lat')
                 arrivals[i]['lon'] = pos.get('lon')
                 arrivals[i]['heading'] = pos.get('heading')
+                # Update ETA with FR24's live tracking estimate
+                if pos.get('live_eta'):
+                    arrivals[i]['eta'] = pos.get('live_eta')
                 continue
         uncached.append((i, flight_id, is_wb, eta))
 
@@ -229,6 +239,9 @@ def enrich_with_positions(arrivals, limit=50):
                         arrivals[idx]['lat'] = pos.get('lat')
                         arrivals[idx]['lon'] = pos.get('lon')
                         arrivals[idx]['heading'] = pos.get('heading')
+                        # Update ETA with FR24's live tracking estimate
+                        if pos.get('live_eta'):
+                            arrivals[idx]['eta'] = pos.get('live_eta')
                 except:
                     pass
 
@@ -425,6 +438,10 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             query = urllib.parse.parse_qs(parsed.query)
             airport = query.get('airport', ['SFO'])[0].upper()
             self.stream_updates(airport)
+        elif parsed.path == '/api/aircraft-photo':
+            query = urllib.parse.parse_qs(parsed.query)
+            registration = query.get('reg', [None])[0]
+            self.get_aircraft_photo(registration)
         else:
             super().do_GET()
 
@@ -540,6 +557,28 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self.send_json(result)
         except Exception as e:
             self.send_error(500, str(e))
+
+    def get_aircraft_photo(self, registration):
+        """Get aircraft photo from Planespotters.net."""
+        if not registration:
+            self.send_json({'url': None, 'error': 'Missing registration'})
+            return
+
+        try:
+            url = f"https://api.planespotters.net/pub/photos/reg/{registration}"
+            req = urllib.request.Request(url, headers=HEADERS)
+            with urllib.request.urlopen(req, timeout=10) as response:
+                data = json.loads(response.read())
+
+            photo_url = None
+            if data.get('photos') and len(data['photos']) > 0:
+                photo = data['photos'][0]
+                if photo.get('thumbnail_large'):
+                    photo_url = photo['thumbnail_large'].get('src')
+
+            self.send_json({'url': photo_url})
+        except Exception as e:
+            self.send_json({'url': None, 'error': str(e)})
 
     def stream_updates(self, airport):
         """SSE endpoint for real-time updates."""

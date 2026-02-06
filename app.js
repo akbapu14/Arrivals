@@ -248,31 +248,6 @@ function formatDistance(nm) {
     return `${Math.round(nm).toLocaleString()} nm`;
 }
 
-// Estimate time to touchdown based on distance and altitude
-function estimateTimeToTouchdown(distanceNm, altitudeFt) {
-    if (!distanceNm || distanceNm <= 0) return null;
-
-    // Average approach speed varies by distance from airport
-    let avgSpeedKts;
-    if (distanceNm < 20) {
-        // Final approach - slower
-        avgSpeedKts = 160;
-    } else if (distanceNm < 100) {
-        // Initial approach / pattern
-        avgSpeedKts = 250;
-    } else {
-        // En route descent
-        avgSpeedKts = 400;
-    }
-
-    const timeHours = distanceNm / avgSpeedKts;
-    const timeMinutes = Math.round(timeHours * 60);
-
-    if (timeMinutes < 1) return '< 1 min';
-    if (timeMinutes === 1) return '1 min';
-    return `${timeMinutes} min`;
-}
-
 // Check if flight is on approach (below 10,000 ft)
 function isOnApproach(arrival) {
     return arrival.live && arrival.altitude && arrival.altitude < 10000;
@@ -319,7 +294,7 @@ function setPhotoCache(reg, url) {
     }
 }
 
-// Fetch aircraft photo from Planespotters.net
+// Fetch aircraft photo via our proxy API (avoids CORS issues on Vercel)
 async function fetchAircraftPhoto(registration) {
     if (!registration) return null;
 
@@ -330,14 +305,13 @@ async function fetchAircraftPhoto(registration) {
     }
 
     try {
-        const response = await fetch(`https://api.planespotters.net/pub/photos/reg/${registration}`);
+        const response = await fetch(`/api/aircraft-photo?reg=${registration}`);
         if (!response.ok) return null;
         const data = await response.json();
 
-        if (data.photos && data.photos.length > 0 && data.photos[0].thumbnail_large) {
-            const url = data.photos[0].thumbnail_large.src;
-            setPhotoCache(registration, url);
-            return url;
+        if (data.url) {
+            setPhotoCache(registration, data.url);
+            return data.url;
         }
         // Cache null result too (no photo available)
         setPhotoCache(registration, '');
@@ -388,7 +362,6 @@ function renderFlightCard(arrival) {
 
     // Calculate distance and ETA for live flights
     let distanceHtml = '';
-    let ttdHtml = ''; // Time to touchdown
     if (live && arrival.lat && arrival.lon) {
         const destCoords = AIRPORT_COORDS[currentAirport];
         if (destCoords) {
@@ -399,19 +372,6 @@ function renderFlightCard(arrival) {
                     <span class="detail-value distance">${formatDistance(distance)}</span>
                 </div>
             `;
-
-            // Show time to touchdown for approaching flights (< 200 nm)
-            if (distance < 200) {
-                const ttd = estimateTimeToTouchdown(distance, arrival.altitude);
-                if (ttd) {
-                    ttdHtml = `
-                        <div class="detail">
-                            <span class="detail-label">Est. Touch</span>
-                            <span class="detail-value ttd">${ttd}</span>
-                        </div>
-                    `;
-                }
-            }
         }
     }
 
@@ -428,7 +388,7 @@ function renderFlightCard(arrival) {
     const etaValue = landed ? (arrival.status?.replace(/landed\s*/i, '') || '-') : formatTime(arrival.eta);
     const countdownHtml = landed ? '' : `
         <div class="detail">
-            <span class="detail-label">In</span>
+            <span class="detail-label">Landing</span>
             <span class="detail-value eta-countdown" data-eta="${arrival.eta || ''}">${formatETA(arrival.eta)}</span>
         </div>`;
 
@@ -482,8 +442,7 @@ function renderFlightCard(arrival) {
                 ${countdownHtml}
                 ${altitudeHtml}
                 ${distanceHtml}
-                ${ttdHtml}
-                ${!altitudeHtml && !landed && !distanceHtml && !ttdHtml ? `<div class="detail">
+                ${!altitudeHtml && !landed && !distanceHtml ? `<div class="detail">
                     <span class="detail-label">Status</span>
                     <span class="detail-value"><span class="status-badge ${statusClass}">${arrival.status || 'Scheduled'}</span></span>
                 </div>` : ''}
@@ -1326,16 +1285,9 @@ function updateMapMarkers() {
         // Calculate distance for popup
         const destCoords = AIRPORT_COORDS[currentAirport];
         let distanceStr = '-';
-        let ttdStr = '';
         if (destCoords) {
             const distance = calculateDistance(flight.lat, flight.lon, destCoords[0], destCoords[1]);
             distanceStr = formatDistance(distance);
-            if (distance < 200) {
-                const ttd = estimateTimeToTouchdown(distance, flight.altitude);
-                if (ttd) {
-                    ttdStr = `<div class="map-popup-detail">Est. Touch: <span class="popup-highlight">${ttd}</span></div>`;
-                }
-            }
         }
 
         const statusBadge = onApproach
@@ -1351,7 +1303,6 @@ function updateMapMarkers() {
             <div class="map-popup-detail">From: <span>${flight.origin}</span></div>
             <div class="map-popup-detail">Distance: <span>${distanceStr}</span></div>
             <div class="map-popup-detail">Altitude: <span>${formatAltitude(flight.altitude)}</span></div>
-            ${ttdStr}
             <div class="map-popup-actions">
                 ${flight.flightId ? `<button class="map-popup-btn" onclick="openFlightModal('${flight.flightId}', '${flight.flight}')">Details</button>` : ''}
                 <button class="map-popup-btn secondary" onclick="centerOnFlight(${flight.lat}, ${flight.lon})">Center</button>

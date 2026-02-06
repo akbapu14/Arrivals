@@ -2,6 +2,7 @@
   "rewrites": [
     { "source": "/api/schedule", "destination": "/api/schedule.py" },
     { "source": "/api/flight-details", "destination": "/api/flight-details.py" },
-    { "source": "/api/weather", "destination": "/api/weather.py" }
+    { "source": "/api/weather", "destination": "/api/weather.py" },
+    { "source": "/api/aircraft-photo", "destination": "/api/aircraft-photo.py" }
   ]
 }
