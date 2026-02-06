@@ -108,31 +108,41 @@ def get_flight_position(flight_id, force_refresh=False):
 
 
 def fetch_schedule_raw(airport, full=True):
-    """Fetch raw schedule data from FR24."""
+    """Fetch raw schedule data from FR24 with parallel requests."""
     now = int(time.time())
     all_flights = []
     seen_flights = set()
 
-    # Fetch current + historical data
-    # Full mode: 5 timestamps (12 hours back), Quick mode: 2 timestamps (3 hours back)
+    # Build list of URLs to fetch in parallel
     num_timestamps = 5 if full else 2
-    timestamps = [now - (i * 3 * 3600) for i in range(num_timestamps)]
-
-    for timestamp in timestamps:
-        for page in range(1, 3 if full else 2):  # Fewer pages in quick mode
+    num_pages = 3 if full else 2
+    urls = []
+    for i in range(num_timestamps):
+        timestamp = now - (i * 3 * 3600)
+        for page in range(1, num_pages):
             url = f"https://api.flightradar24.com/common/v1/airport.json?code={airport}&plugin=schedule&plugin-setting%5Bschedule%5D%5Bmode%5D=arrivals&plugin-setting%5Bschedule%5D%5Btimestamp%5D={timestamp}&limit=100&page={page}"
-            try:
-                req = urllib.request.Request(url, headers=HEADERS)
-                with urllib.request.urlopen(req, timeout=10) as response:
-                    data = json.loads(response.read())
-                    flights = data.get('result', {}).get('response', {}).get('airport', {}).get('pluginData', {}).get('schedule', {}).get('arrivals', {}).get('data', [])
-                    for f in flights:
-                        fid = f.get('flight', {}).get('identification', {}).get('id')
-                        if fid and fid not in seen_flights:
-                            seen_flights.add(fid)
-                            all_flights.append(f)
-            except:
-                break
+            urls.append(url)
+
+    def fetch_one(url):
+        try:
+            req = urllib.request.Request(url, headers=HEADERS)
+            with urllib.request.urlopen(req, timeout=10) as response:
+                data = json.loads(response.read())
+                return data.get('result', {}).get('response', {}).get('airport', {}).get('pluginData', {}).get('schedule', {}).get('arrivals', {}).get('data', [])
+        except:
+            return []
+
+    # Fetch all URLs in parallel
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        results = list(executor.map(fetch_one, urls))
+
+    # Combine and dedupe results
+    for flights in results:
+        for f in flights:
+            fid = f.get('flight', {}).get('identification', {}).get('id')
+            if fid and fid not in seen_flights:
+                seen_flights.add(fid)
+                all_flights.append(f)
 
     # Parse into cleaner format
     arrivals = []
