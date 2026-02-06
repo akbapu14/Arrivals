@@ -403,13 +403,18 @@ function renderFlightCard(arrival) {
     }
 
     // Format airline name (shorten if too long)
-    const airlineName = arrival.airline || 'Unknown';
-    const shortAirline = airlineName.length > 20 ? airlineName.substring(0, 18) + '...' : airlineName;
+    const airlineName = arrival.airline || '';
+    const shortAirline = airlineName.length > 25 ? airlineName.substring(0, 23) + '...' : airlineName;
+
+    // Extract airline code from flight number for logo (e.g., "UA1234" -> "UA")
+    const airlineCode = (arrival.flight || '').match(/^[A-Z]{2,3}/)?.[0] || '';
+    const logoUrl = airlineCode ? `https://pics.avs.io/60/60/${airlineCode}.png` : '';
 
     return `
         <div class="${cardClass}" ${clickHandler}>
             <div class="flight-header">
-                <div class="flight-origin-info">
+                <div class="flight-route">
+                    <span class="route-from">From</span>
                     <span class="origin-code">${arrival.origin}</span>
                     <span class="origin-name">${arrival.originName || ''}</span>
                 </div>
@@ -419,8 +424,11 @@ function renderFlightCard(arrival) {
                 </div>
             </div>
             <div class="flight-airline">
-                <span class="airline-name">${shortAirline}</span>
-                <span class="flight-number copyable" onclick="copyToClipboard('${arrival.flight}', event)" title="Click to copy">${arrival.flight}</span>
+                ${logoUrl ? `<img src="${logoUrl}" alt="${airlineCode}" class="airline-logo" onerror="this.style.display='none'">` : ''}
+                <div class="airline-info">
+                    <span class="airline-name">${shortAirline || 'Unknown Airline'}</span>
+                    <span class="flight-number copyable" onclick="copyToClipboard('${arrival.flight}', event)" title="Click to copy">${arrival.flight}</span>
+                </div>
             </div>
             <div class="flight-details">
                 <div class="detail">
