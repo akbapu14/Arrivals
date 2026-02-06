@@ -22,7 +22,7 @@ WIDEBODY_TYPES = {
 }
 
 def get_flight_details(flight_id):
-    """Fetch live flight details including altitude, position, heading."""
+    """Fetch live flight details including altitude, position, heading, and live ETA."""
     if not flight_id:
         return None
     try:
@@ -31,6 +31,11 @@ def get_flight_details(flight_id):
         with urllib.request.urlopen(req, timeout=3) as response:
             data = json.loads(response.read())
             trail = data.get('trail', [])
+
+            # Get live ETA from FR24's real-time tracking
+            time_data = data.get('time', {})
+            live_eta = time_data.get('estimated', {}).get('arrival') or time_data.get('other', {}).get('eta')
+
             if trail and len(trail) > 0:
                 latest = trail[0]
                 if isinstance(latest, dict):
@@ -39,7 +44,8 @@ def get_flight_details(flight_id):
                         'lat': latest.get('lat'),
                         'lon': latest.get('lng'),
                         'heading': latest.get('hd'),
-                        'speed': latest.get('spd')
+                        'speed': latest.get('spd'),
+                        'live_eta': live_eta
                     }
                 elif isinstance(latest, list) and len(latest) >= 5:
                     return {
@@ -47,7 +53,8 @@ def get_flight_details(flight_id):
                         'lat': latest[0],
                         'lon': latest[1],
                         'heading': latest[4] if len(latest) > 4 else None,
-                        'speed': latest[3] if len(latest) > 3 else None
+                        'speed': latest[3] if len(latest) > 3 else None,
+                        'live_eta': live_eta
                     }
     except:
         pass
@@ -106,6 +113,7 @@ class handler(BaseHTTPRequestHandler):
                 'callsign': ident.get('callsign', '?'),
                 'type': model.get('code', '?'),
                 'typeName': model.get('text', ''),
+                'registration': aircraft_info.get('registration'),
                 'origin': (origin_info.get('code') or {}).get('iata', '?'),
                 'originName': origin_info.get('name', ''),
                 'status': status_info.get('text', ''),
@@ -143,6 +151,9 @@ class handler(BaseHTTPRequestHandler):
                     arrivals[idx]['lat'] = details.get('lat')
                     arrivals[idx]['lon'] = details.get('lon')
                     arrivals[idx]['heading'] = details.get('heading')
+                    # Update ETA with FR24's live tracking estimate
+                    if details.get('live_eta'):
+                        arrivals[idx]['eta'] = details.get('live_eta')
 
         # Send response
         self.send_response(200)
