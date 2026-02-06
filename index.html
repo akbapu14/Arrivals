@@ -666,12 +666,12 @@
             display: flex;
             flex-direction: column;
             align-items: center;
-            gap: 5px;
+            width: 120px;
         }
 
         .aircraft-photo {
-            width: 120px;
-            height: 80px;
+            width: 100%;
+            height: 95px;
             object-fit: cover;
             border-radius: 6px;
             box-shadow: 0 2px 8px rgba(0,0,0,0.3);
@@ -689,6 +689,7 @@
             font-size: 0.65rem;
             font-weight: 600;
             color: var(--cyan);
+            margin-top: 5px;
         }
 
         /* Modal aircraft photo */
@@ -1671,6 +1672,6 @@
     <script defer src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
     <!-- Leaflet.Geodesic for great circle routes -->
     <script defer src="https://cdn.jsdelivr.net/npm/leaflet.geodesic@2.7.1/dist/leaflet.geodesic.umd.min.js"></script>
-    <script defer src="app.js?v=7"></script>
+    <script defer src="app.js?v=9"></script>
 </body>
 </html>
