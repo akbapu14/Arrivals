@@ -13,8 +13,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 PORT = 8080
 
-# Top airports to pre-warm
-TOP_AIRPORTS = ['SFO', 'LAX', 'JFK', 'EWR', 'ORD', 'DFW']
+# Top airports to pre-warm (US + major international)
+TOP_AIRPORTS = ['SFO', 'LAX', 'JFK', 'EWR', 'ORD', 'DFW', 'LHR', 'DXB', 'HND', 'SIN', 'CDG', 'AMS']
 
 # Caches
 position_cache = {}  # flight_id -> {data, timestamp}
@@ -107,17 +107,19 @@ def get_flight_position(flight_id, force_refresh=False):
     return None
 
 
-def fetch_schedule_raw(airport):
+def fetch_schedule_raw(airport, full=True):
     """Fetch raw schedule data from FR24."""
     now = int(time.time())
     all_flights = []
     seen_flights = set()
 
     # Fetch current + historical data
-    timestamps = [now - (i * 3 * 3600) for i in range(5)]
+    # Full mode: 5 timestamps (12 hours back), Quick mode: 2 timestamps (3 hours back)
+    num_timestamps = 5 if full else 2
+    timestamps = [now - (i * 3 * 3600) for i in range(num_timestamps)]
 
     for timestamp in timestamps:
-        for page in range(1, 3):
+        for page in range(1, 3 if full else 2):  # Fewer pages in quick mode
             url = f"https://api.flightradar24.com/common/v1/airport.json?code={airport}&plugin=schedule&plugin-setting%5Bschedule%5D%5Bmode%5D=arrivals&plugin-setting%5Bschedule%5D%5Btimestamp%5D={timestamp}&limit=100&page={page}"
             try:
                 req = urllib.request.Request(url, headers=HEADERS)
@@ -387,8 +389,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 })
                 return
 
-        # Fetch fresh schedule
-        arrivals = fetch_schedule_raw(airport)
+        # Fetch fresh schedule (quick mode for faster response)
+        arrivals = fetch_schedule_raw(airport, full=False)
 
         # Update cache
         schedule_cache[airport] = {
@@ -396,8 +398,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             'timestamp': now
         }
 
-        # Enrich with positions
-        arrivals = enrich_with_positions(arrivals, limit=50)
+        # Enrich with positions (fewer for cold fetch)
+        arrivals = enrich_with_positions(arrivals, limit=25)
 
         self.send_json({
             'arrivals': arrivals,
