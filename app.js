@@ -1,3 +1,10 @@
+// Register service worker for caching
+if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js').catch(err => {
+        console.warn('Service worker registration failed:', err);
+    });
+}
+
 // Widebody aircraft type codes
 const WIDEBODY_TYPES = new Set([
     'A332', 'A333', 'A338', 'A339', 'A342', 'A343', 'A345', 'A346',
@@ -50,6 +57,9 @@ let mapMarkers = [];
 let flightPaths = []; // Store flight path lines
 let airportMarker = null;
 let miniMap = null; // Track mini map instance for cleanup
+let eventSource = null; // SSE connection
+let isFirstLoad = true; // Track if this is initial load
+let mapInitialized = false; // Track if map has been initialized
 const NORMAL_INTERVAL = 60; // seconds
 const APPROACH_INTERVAL = 1; // seconds when aircraft on approach
 const APPROACH_ALTITUDE = 30000; // feet
@@ -126,10 +136,51 @@ async function fetchWithRetry(url, maxRetries = 3) {
 }
 
 // Fetch schedule from server
-async function fetchSchedule() {
-    const response = await fetchWithRetry(`/api/schedule?airport=${currentAirport}`);
+async function fetchSchedule(fast = false) {
+    const url = `/api/schedule?airport=${currentAirport}${fast ? '&fast=1' : ''}`;
+    const response = await fetchWithRetry(url);
     const data = await response.json();
+    if (data.cached) {
+        console.log(`Using cached data (${data.cache_age}s old)`);
+    }
     return data.arrivals || [];
+}
+
+// Connect to SSE stream for real-time updates
+function connectSSE() {
+    if (eventSource) {
+        eventSource.close();
+    }
+
+    eventSource = new EventSource(`/api/stream?airport=${currentAirport}`);
+
+    eventSource.onmessage = (event) => {
+        try {
+            const data = JSON.parse(event.data);
+            if (data.arrivals) {
+                allArrivals = data.arrivals;
+                updateDisplay();
+                lastRefreshTime = Date.now();
+                setStatus(true);
+            }
+        } catch (e) {
+            console.warn('SSE parse error:', e);
+        }
+    };
+
+    eventSource.onerror = () => {
+        console.log('SSE connection lost, falling back to polling');
+        eventSource.close();
+        eventSource = null;
+    };
+}
+
+// Disconnect SSE
+function disconnectSSE() {
+    if (eventSource) {
+        eventSource.close();
+        eventSource = null;
+    }
 }
 
 // Filter aircraft by type
@@ -351,14 +402,25 @@ function renderFlightCard(arrival) {
         statusBadgeHtml = '<span class="status-badge status-green">LIVE</span>';
     }
 
+    // Format airline name (shorten if too long)
+    const airlineName = arrival.airline || 'Unknown';
+    const shortAirline = airlineName.length > 20 ? airlineName.substring(0, 18) + '...' : airlineName;
+
     return `
         <div class="${cardClass}" ${clickHandler}>
             <div class="flight-header">
-                <div>
-                    <span class="flight-number copyable" onclick="copyToClipboard('${arrival.flight}', event)" title="Click to copy">${arrival.flight}</span>
+                <div class="flight-origin-info">
+                    <span class="origin-code">${arrival.origin}</span>
+                    <span class="origin-name">${arrival.originName || ''}</span>
+                </div>
+                <div class="flight-meta">
+                    <span class="aircraft-type">${typeName}</span>
                     ${statusBadgeHtml}
                 </div>
-                <span class="aircraft-type">${typeName}</span>
+            </div>
+            <div class="flight-airline">
+                <span class="airline-name">${shortAirline}</span>
+                <span class="flight-number copyable" onclick="copyToClipboard('${arrival.flight}', event)" title="Click to copy">${arrival.flight}</span>
             </div>
             <div class="flight-details">
                 <div class="detail">
@@ -366,10 +428,6 @@ function renderFlightCard(arrival) {
                     <span class="detail-value eta">${etaValue}</span>
                 </div>
                 ${countdownHtml}
-                <div class="detail">
-                    <span class="detail-label">From</span>
-                    <span class="detail-value origin">${arrival.origin}</span>
-                </div>
                 ${altitudeHtml}
                 ${distanceHtml}
                 ${ttdHtml}
@@ -377,10 +435,6 @@ function renderFlightCard(arrival) {
                     <span class="detail-label">Status</span>
                     <span class="detail-value"><span class="status-badge ${statusClass}">${arrival.status || 'Scheduled'}</span></span>
                 </div>` : ''}
-                <div class="detail" style="grid-column: span 2;">
-                    <span class="detail-label">Origin</span>
-                    <span class="detail-value" style="font-size: 0.9rem; color: #888;">${arrival.originName || ''}</span>
-                </div>
             </div>
         </div>
     `;
@@ -662,10 +716,19 @@ async function refresh() {
     }
 
     try {
-        allArrivals = await fetchSchedule();
+        // Use fast mode on first load to get cached data instantly
+        const useFastMode = isFirstLoad;
+        allArrivals = await fetchSchedule(useFastMode);
         updateDisplay();
         lastRefreshTime = Date.now();
         setStatus(true);
+
+        // After first successful load, try to connect SSE for real-time updates
+        if (isFirstLoad) {
+            isFirstLoad = false;
+            // Try SSE connection (will fall back to polling if it fails)
+            setTimeout(() => connectSSE(), 1000);
+        }
     } catch (error) {
         console.error('Error:', error);
         setStatus(false);
@@ -677,7 +740,10 @@ async function refresh() {
         `;
     } finally {
         setLoading(false);
-        scheduleNextRefresh();
+        // Only schedule polling refresh if SSE is not connected
+        if (!eventSource) {
+            scheduleNextRefresh();
+        }
     }
 }
 
@@ -709,6 +775,9 @@ function selectAirport(airport) {
     updateTitle();
     savePreferences();
 
+    // Disconnect SSE and reconnect for new airport
+    disconnectSSE();
+
     // Update map center if in map view
     if (map) {
         const coords = AIRPORT_COORDS[currentAirport] || [37.6213, -122.3790];
@@ -721,6 +790,9 @@ function selectAirport(airport) {
     displayedFlightIds = [];
     refresh();
     fetchWeather();
+
+    // Reconnect SSE after refresh
+    setTimeout(() => connectSSE(), 2000);
 }
 
 document.querySelectorAll('.airport-btn').forEach(btn => {

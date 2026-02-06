@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Simple proxy server for SFO arrivals dashboard."""
+"""Optimized proxy server for SFO arrivals dashboard."""
 
 import http.server
 import json
@@ -7,14 +7,24 @@ import urllib.request
 import urllib.error
 import urllib.parse
 import time
+import threading
+import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 PORT = 8080
-BOUNDS = "38.5,36.5,-123.5,-121"
 
-# Cache for flight positions (flight_id -> {data, timestamp})
-position_cache = {}
-CACHE_TTL = 30  # seconds
+# Top airports to pre-warm
+TOP_AIRPORTS = ['SFO', 'LAX', 'JFK', 'EWR', 'ORD', 'DFW']
+
+# Caches
+position_cache = {}  # flight_id -> {data, timestamp}
+schedule_cache = {}  # airport -> {arrivals, timestamp}
+POSITION_CACHE_TTL = 30  # seconds
+SCHEDULE_CACHE_TTL = 45  # seconds
+
+# Background fetcher state
+background_running = False
+background_thread = None
 
 WIDEBODY_TYPES = {
     'A332', 'A333', 'A338', 'A339', 'A342', 'A343', 'A345', 'A346',
@@ -30,17 +40,33 @@ HEADERS = {
     'Referer': 'https://www.flightradar24.com/',
 }
 
-def get_flight_position(flight_id):
-    """Fetch live flight position including altitude, lat/lon, heading."""
+AIRPORT_COORDS_WEATHER = {
+    'SFO': (37.6213, -122.3790),
+    'LAX': (33.9425, -118.4081),
+    'JFK': (40.6413, -73.7781),
+    'EWR': (40.6895, -74.1745),
+    'DFW': (32.8998, -97.0403),
+    'SAN': (32.7338, -117.1933),
+    'ORD': (41.9742, -87.9073),
+    'ATL': (33.6407, -84.4277),
+    'SEA': (47.4502, -122.3088),
+    'BOS': (42.3656, -71.0096),
+    'MIA': (25.7959, -80.2870),
+    'DEN': (39.8561, -104.6737),
+}
+
+
+def get_flight_position(flight_id, force_refresh=False):
+    """Fetch live flight position with caching."""
     if not flight_id:
         return None
 
     now = time.time()
 
-    # Check cache first
-    if flight_id in position_cache:
+    # Check cache first (unless force refresh)
+    if not force_refresh and flight_id in position_cache:
         cached = position_cache[flight_id]
-        if now - cached['timestamp'] < CACHE_TTL:
+        if now - cached['timestamp'] < POSITION_CACHE_TTL:
             return cached['data']
 
     try:
@@ -68,7 +94,7 @@ def get_flight_position(flight_id):
                         'heading': latest[4] if len(latest) > 4 else None,
                         'speed': latest[3] if len(latest) > 3 else None
                     }
-                if result:
+                if result and result.get('lat') and result.get('lon'):
                     position_cache[flight_id] = {'data': result, 'timestamp': now}
                     return result
     except:
@@ -79,6 +105,172 @@ def get_flight_position(flight_id):
         return position_cache[flight_id]['data']
 
     return None
+
+
+def fetch_schedule_raw(airport):
+    """Fetch raw schedule data from FR24."""
+    now = int(time.time())
+    all_flights = []
+    seen_flights = set()
+
+    # Fetch current + historical data
+    timestamps = [now - (i * 3 * 3600) for i in range(5)]
+
+    for timestamp in timestamps:
+        for page in range(1, 3):
+            url = f"https://api.flightradar24.com/common/v1/airport.json?code={airport}&plugin=schedule&plugin-setting%5Bschedule%5D%5Bmode%5D=arrivals&plugin-setting%5Bschedule%5D%5Btimestamp%5D={timestamp}&limit=100&page={page}"
+            try:
+                req = urllib.request.Request(url, headers=HEADERS)
+                with urllib.request.urlopen(req, timeout=10) as response:
+                    data = json.loads(response.read())
+                    flights = data.get('result', {}).get('response', {}).get('airport', {}).get('pluginData', {}).get('schedule', {}).get('arrivals', {}).get('data', [])
+                    for f in flights:
+                        fid = f.get('flight', {}).get('identification', {}).get('id')
+                        if fid and fid not in seen_flights:
+                            seen_flights.add(fid)
+                            all_flights.append(f)
+            except:
+                break
+
+    # Parse into cleaner format
+    arrivals = []
+    for flight in all_flights:
+        f = flight.get('flight') or {}
+        aircraft_info = f.get('aircraft') or {}
+        model = aircraft_info.get('model') or {}
+        ident = f.get('identification') or {}
+        airport_data = f.get('airport') or {}
+        origin_info = airport_data.get('origin') or {}
+        status_info = f.get('status') or {}
+        airline_info = f.get('airline') or {}
+        time_data = f.get('time') or {}
+        est = time_data.get('estimated') or {}
+        sched = time_data.get('scheduled') or {}
+
+        arrival = {
+            'flight': (ident.get('number') or {}).get('default', ident.get('callsign', '?')),
+            'callsign': ident.get('callsign', '?'),
+            'type': model.get('code', '?'),
+            'typeName': model.get('text', ''),
+            'origin': (origin_info.get('code') or {}).get('iata', '?'),
+            'originName': origin_info.get('name', ''),
+            'status': status_info.get('text', ''),
+            'statusColor': status_info.get('icon', ''),
+            'airline': airline_info.get('short', airline_info.get('name', '')),
+            'eta': est.get('arrival') or sched.get('arrival'),
+            'scheduled': sched.get('arrival'),
+            'live': status_info.get('live', False),
+            'flightId': ident.get('id'),
+            'altitude': None,
+            'lat': None,
+            'lon': None,
+            'heading': None,
+        }
+        arrivals.append(arrival)
+
+    return arrivals
+
+
+def enrich_with_positions(arrivals, limit=50):
+    """Add position data to arrivals from cache or fetch."""
+    now = time.time()
+
+    # Get live flights, prioritize by ETA (soonest first) and widebody
+    live_flights = []
+    for i, a in enumerate(arrivals):
+        if a['live'] and a['flightId']:
+            is_widebody = a['type'] in WIDEBODY_TYPES
+            eta = a.get('eta') or float('inf')
+            live_flights.append((i, a['flightId'], is_widebody, eta))
+
+    # Sort: soonest ETA first, then widebodies
+    live_flights.sort(key=lambda x: (x[3], not x[2]))
+
+    # First pass: use cached positions (instant)
+    uncached = []
+    for i, flight_id, is_wb, eta in live_flights[:limit]:
+        if flight_id in position_cache:
+            cached = position_cache[flight_id]
+            if now - cached['timestamp'] < POSITION_CACHE_TTL * 2:  # Use slightly stale cache
+                pos = cached['data']
+                arrivals[i]['altitude'] = pos.get('alt')
+                arrivals[i]['lat'] = pos.get('lat')
+                arrivals[i]['lon'] = pos.get('lon')
+                arrivals[i]['heading'] = pos.get('heading')
+                continue
+        uncached.append((i, flight_id, is_wb, eta))
+
+    # Second pass: fetch uncached positions in parallel
+    if uncached:
+        def fetch_pos(item):
+            idx, flight_id, _, _ = item
+            return idx, get_flight_position(flight_id)
+
+        with ThreadPoolExecutor(max_workers=15) as executor:
+            futures = [executor.submit(fetch_pos, item) for item in uncached[:30]]
+            for future in as_completed(futures):
+                try:
+                    idx, pos = future.result()
+                    if pos:
+                        arrivals[idx]['altitude'] = pos.get('alt')
+                        arrivals[idx]['lat'] = pos.get('lat')
+                        arrivals[idx]['lon'] = pos.get('lon')
+                        arrivals[idx]['heading'] = pos.get('heading')
+                except:
+                    pass
+
+    return arrivals
+
+
+def background_fetcher():
+    """Background thread that pre-warms caches for top airports."""
+    global background_running
+    print("Background fetcher started")
+
+    while background_running:
+        for airport in TOP_AIRPORTS:
+            if not background_running:
+                break
+            try:
+                # Fetch schedule
+                arrivals = fetch_schedule_raw(airport)
+
+                # Pre-fetch positions for live flights (prioritize soonest arrivals)
+                live_flights = [(a['flightId'], a.get('eta') or float('inf'), a['type'] in WIDEBODY_TYPES)
+                               for a in arrivals if a['live'] and a['flightId']]
+                live_flights.sort(key=lambda x: (x[1], not x[2]))  # Soonest first, then widebodies
+
+                # Fetch positions for top 30 flights
+                for flight_id, _, _ in live_flights[:30]:
+                    if not background_running:
+                        break
+                    get_flight_position(flight_id, force_refresh=True)
+                    time.sleep(0.1)  # Small delay to avoid hammering API
+
+                # Update schedule cache
+                schedule_cache[airport] = {
+                    'arrivals': arrivals,
+                    'timestamp': time.time()
+                }
+
+            except Exception as e:
+                print(f"Background fetch error for {airport}: {e}")
+
+            time.sleep(2)  # Wait between airports
+
+        # Wait before next cycle
+        time.sleep(10)
+
+    print("Background fetcher stopped")
+
+
+def start_background_fetcher():
+    """Start the background fetcher thread."""
+    global background_running, background_thread
+    if not background_running:
+        background_running = True
+        background_thread = threading.Thread(target=background_fetcher, daemon=True)
+        background_thread.start()
 
 
 def fetch_flight_details(flight_id):
@@ -145,31 +337,19 @@ def fetch_flight_details(flight_id):
     }
 
 
-AIRPORT_COORDS_WEATHER = {
-    'SFO': (37.6213, -122.3790),
-    'LAX': (33.9425, -118.4081),
-    'JFK': (40.6413, -73.7781),
-    'EWR': (40.6895, -74.1745),
-    'DFW': (32.8998, -97.0403),
-    'SAN': (32.7338, -117.1933),
-    'ORD': (41.9742, -87.9073),
-    'ATL': (33.6407, -84.4277),
-    'SEA': (47.4502, -122.3088),
-    'BOS': (42.3656, -71.0096),
-    'MIA': (25.7959, -80.2870),
-    'DEN': (39.8561, -104.6737),
-}
-
-
 class Handler(http.server.SimpleHTTPRequestHandler):
     def do_GET(self):
         parsed = urllib.parse.urlparse(self.path)
-        if parsed.path == '/api/aircraft':
-            self.proxy_aircraft()
-        elif parsed.path == '/api/schedule':
+
+        if parsed.path == '/api/schedule':
             query = urllib.parse.parse_qs(parsed.query)
-            airport = query.get('airport', ['SFO'])[0]
-            self.get_schedule(airport)
+            airport = query.get('airport', ['SFO'])[0].upper()
+            fast = query.get('fast', ['0'])[0] == '1'
+            self.get_schedule(airport, fast)
+        elif parsed.path == '/api/positions':
+            query = urllib.parse.parse_qs(parsed.query)
+            flight_ids = query.get('ids', [''])[0].split(',')
+            self.get_positions(flight_ids)
         elif parsed.path == '/api/flight-details':
             query = urllib.parse.parse_qs(parsed.query)
             flight_id = query.get('id', [None])[0]
@@ -178,129 +358,62 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             query = urllib.parse.parse_qs(parsed.query)
             airport = query.get('airport', ['SFO'])[0]
             self.get_weather(airport)
+        elif parsed.path == '/api/stream':
+            query = urllib.parse.parse_qs(parsed.query)
+            airport = query.get('airport', ['SFO'])[0].upper()
+            self.stream_updates(airport)
         else:
             super().do_GET()
 
-    def proxy_aircraft(self):
-        """Fetch live aircraft from FlightRadar24."""
-        url = f"https://data-cloud.flightradar24.com/zones/fcgi/feed.js?faa=1&bounds={BOUNDS}&satellite=1&mlat=1&flarm=1&adsb=1&gnd=0&air=1&vehicles=0&estimated=1&maxage=14400&gliders=0&stats=0"
+    def get_schedule(self, airport='SFO', fast=False):
+        """Get schedule - uses cache if available, fetches fresh if not."""
+        now = time.time()
 
-        try:
-            req = urllib.request.Request(url, headers=HEADERS)
-            with urllib.request.urlopen(req, timeout=10) as response:
-                raw = json.loads(response.read())
+        # Check cache first
+        if airport in schedule_cache:
+            cached = schedule_cache[airport]
+            cache_age = now - cached['timestamp']
 
-            aircraft = []
-            for fid, data in raw.items():
-                if not isinstance(data, list) or len(data) < 17:
-                    continue
-                aircraft.append({
-                    'id': fid,
-                    'lat': data[1],
-                    'lon': data[2],
-                    'track': data[3],
-                    'altitude': data[4],
-                    'speed': data[5],
-                    'type': data[8],
-                    'registration': data[9],
-                    'origin': data[11],
-                    'destination': data[12],
-                    'flight': data[13],
-                    'onGround': data[14],
-                    'vspeed': data[15],
-                    'callsign': data[16] if len(data) > 16 else data[13],
+            # For fast mode or fresh cache, return cached data
+            if fast or cache_age < SCHEDULE_CACHE_TTL:
+                arrivals = cached['arrivals'].copy()
+                # Enrich with latest positions from cache
+                arrivals = enrich_with_positions(arrivals, limit=50)
+                self.send_json({
+                    'arrivals': arrivals,
+                    'source': 'flightradar24',
+                    'cached': True,
+                    'cache_age': round(cache_age, 1)
                 })
+                return
 
-            self.send_json({'aircraft': aircraft, 'source': 'flightradar24'})
-        except Exception as e:
-            self.send_error(500, str(e))
+        # Fetch fresh schedule
+        arrivals = fetch_schedule_raw(airport)
 
-    def get_schedule(self, airport='SFO'):
-        """Fetch scheduled arrivals from FlightRadar24, including last 12 hours."""
-        now = int(time.time())
-        all_flights = []
-        seen_flights = set()
+        # Update cache
+        schedule_cache[airport] = {
+            'arrivals': arrivals,
+            'timestamp': now
+        }
 
-        # Fetch current + historical data (every 3 hours for last 12 hours)
-        timestamps = [now - (i * 3 * 3600) for i in range(5)]  # now, -3h, -6h, -9h, -12h
+        # Enrich with positions
+        arrivals = enrich_with_positions(arrivals, limit=50)
 
-        for timestamp in timestamps:
-            for page in range(1, 3):  # 2 pages per timestamp
-                url = f"https://api.flightradar24.com/common/v1/airport.json?code={airport}&plugin=schedule&plugin-setting%5Bschedule%5D%5Bmode%5D=arrivals&plugin-setting%5Bschedule%5D%5Btimestamp%5D={timestamp}&limit=100&page={page}"
-                try:
-                    req = urllib.request.Request(url, headers=HEADERS)
-                    with urllib.request.urlopen(req, timeout=10) as response:
-                        data = json.loads(response.read())
-                        flights = data.get('result', {}).get('response', {}).get('airport', {}).get('pluginData', {}).get('schedule', {}).get('arrivals', {}).get('data', [])
-                        for f in flights:
-                            # Dedupe by flight ID
-                            fid = f.get('flight', {}).get('identification', {}).get('id')
-                            if fid and fid not in seen_flights:
-                                seen_flights.add(fid)
-                                all_flights.append(f)
-                except:
-                    break
+        self.send_json({
+            'arrivals': arrivals,
+            'source': 'flightradar24',
+            'cached': False
+        })
 
-        # Parse into cleaner format
-        arrivals = []
-
-        for flight in all_flights:
-            f = flight.get('flight') or {}
-            aircraft_info = f.get('aircraft') or {}
-            model = aircraft_info.get('model') or {}
-            ident = f.get('identification') or {}
-            airport_data = f.get('airport') or {}
-            origin_info = airport_data.get('origin') or {}
-            status_info = f.get('status') or {}
-            airline_info = f.get('airline') or {}
-            time_data = f.get('time') or {}
-            est = time_data.get('estimated') or {}
-            sched = time_data.get('scheduled') or {}
-
-            arrival = {
-                'flight': (ident.get('number') or {}).get('default', ident.get('callsign', '?')),
-                'callsign': ident.get('callsign', '?'),
-                'type': model.get('code', '?'),
-                'typeName': model.get('text', ''),
-                'origin': (origin_info.get('code') or {}).get('iata', '?'),
-                'originName': origin_info.get('name', ''),
-                'status': status_info.get('text', ''),
-                'statusColor': status_info.get('icon', ''),
-                'airline': airline_info.get('short', airline_info.get('name', '')),
-                'eta': est.get('arrival') or sched.get('arrival'),
-                'scheduled': sched.get('arrival'),
-                'live': status_info.get('live', False),
-                'flightId': ident.get('id'),
-                'altitude': None,
-                'lat': None,
-                'lon': None,
-                'heading': None,
-            }
-
-            arrivals.append(arrival)
-
-        # Fetch positions for all live flights (prioritize widebodies first)
-        live_flights = [(i, a['flightId'], a['type'] in WIDEBODY_TYPES) for i, a in enumerate(arrivals)
-                        if a['live'] and a['flightId']]
-        # Sort so widebodies come first
-        live_flights.sort(key=lambda x: (not x[2], x[0]))
-
-        # Fetch flight positions in parallel (limit to 25)
-        def fetch_pos(item):
-            idx, flight_id, _ = item
-            return idx, get_flight_position(flight_id)
-
-        with ThreadPoolExecutor(max_workers=15) as executor:
-            futures = [executor.submit(fetch_pos, item) for item in live_flights[:50]]
-            for future in as_completed(futures):
-                idx, pos = future.result()
+    def get_positions(self, flight_ids):
+        """Get positions for specific flight IDs."""
+        positions = {}
+        for fid in flight_ids:
+            if fid:
+                pos = get_flight_position(fid)
                 if pos:
-                    arrivals[idx]['altitude'] = pos.get('alt')
-                    arrivals[idx]['lat'] = pos.get('lat')
-                    arrivals[idx]['lon'] = pos.get('lon')
-                    arrivals[idx]['heading'] = pos.get('heading')
-
-        self.send_json({'arrivals': arrivals, 'source': 'flightradar24'})
+                    positions[fid] = pos
+        self.send_json({'positions': positions})
 
     def get_flight_details(self, flight_id):
         """Get detailed flight info."""
@@ -315,7 +428,6 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
     def get_weather(self, airport):
         """Get weather for airport."""
-        import os
         airport = airport.upper()
         coords = AIRPORT_COORDS_WEATHER.get(airport, AIRPORT_COORDS_WEATHER['SFO'])
         lat, lon = coords
@@ -323,7 +435,6 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         api_key = os.environ.get('OPENWEATHER_API_KEY', '')
 
         if not api_key:
-            # Return mock/unavailable data
             self.send_json({
                 'airport': airport,
                 'temp': None,
@@ -367,14 +478,54 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         except Exception as e:
             self.send_error(500, str(e))
 
+    def stream_updates(self, airport):
+        """SSE endpoint for real-time updates."""
+        self.send_response(200)
+        self.send_header('Content-Type', 'text/event-stream')
+        self.send_header('Cache-Control', 'no-cache')
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Connection', 'keep-alive')
+        self.end_headers()
+
+        try:
+            last_update = 0
+            while True:
+                now = time.time()
+
+                # Send update every 15 seconds
+                if now - last_update >= 15:
+                    if airport in schedule_cache:
+                        cached = schedule_cache[airport]
+                        arrivals = cached['arrivals'].copy()
+                        arrivals = enrich_with_positions(arrivals, limit=50)
+
+                        data = json.dumps({
+                            'arrivals': arrivals,
+                            'timestamp': now
+                        })
+                        self.wfile.write(f"data: {data}\n\n".encode())
+                        self.wfile.flush()
+                    last_update = now
+
+                time.sleep(1)
+        except:
+            pass  # Client disconnected
+
     def send_json(self, data):
         self.send_response(200)
         self.send_header('Content-Type', 'application/json')
         self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Cache-Control', 'public, max-age=5')
         self.end_headers()
         self.wfile.write(json.dumps(data).encode())
 
+
 if __name__ == '__main__':
-    print(f"Starting Widebody Arrivals server on http://localhost:{PORT}")
+    # Start background fetcher
+    start_background_fetcher()
+
+    print(f"Starting Optimized Arrivals server on http://localhost:{PORT}")
+    print(f"Background pre-warming: {', '.join(TOP_AIRPORTS)}")
     print("Open http://localhost:8080 in your browser")
+
     http.server.HTTPServer(('', PORT), Handler).serve_forever()
