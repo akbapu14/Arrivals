@@ -70,3 +70,7 @@ rotation = (heading || 0) - 90;
 2. **FR24 API data limitations** - The API only returns live position data for currently airborne flights. Future scheduled flights (including narrowbodies) don't have coordinates until they depart.
 
 3. **Test comprehensively** - Run the full test suite (140 tests) after any change to ensure nothing broke.
+
+4. **Use actual trail data for flight paths** - Don't try to draw lines from origin airport to current position (requires maintaining airport coordinate database). Instead, use the `trail` array from `/api/flight-details` which contains the actual flown path with lat/lon points. This is more accurate and always works.
+
+5. **Aircraft photos API** - Use Planespotters.net public API: `https://api.planespotters.net/pub/photos/reg/{registration}` - no auth required, returns thumbnail URLs.

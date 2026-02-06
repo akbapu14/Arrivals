@@ -60,6 +60,8 @@ let miniMap = null; // Track mini map instance for cleanup
 let eventSource = null; // SSE connection
 let isFirstLoad = true; // Track if this is initial load
 let mapInitialized = false; // Track if map has been initialized
+let modalUpdateInterval = null; // Track modal position update interval
+let currentModalFlightId = null; // Track which flight is in modal
 const NORMAL_INTERVAL = 60; // seconds
 const APPROACH_INTERVAL = 1; // seconds when aircraft on approach
 const APPROACH_ALTITUDE = 30000; // feet
@@ -146,33 +148,10 @@ async function fetchSchedule(fast = false) {
     return data.arrivals || [];
 }
 
-// Connect to SSE stream for real-time updates
+// SSE disabled - was blocking single-threaded server
 function connectSSE() {
-    if (eventSource) {
-        eventSource.close();
-    }
-
-    eventSource = new EventSource(`/api/stream?airport=${currentAirport}`);
-
-    eventSource.onmessage = (event) => {
-        try {
-            const data = JSON.parse(event.data);
-            if (data.arrivals) {
-                allArrivals = data.arrivals;
-                updateDisplay();
-                lastRefreshTime = Date.now();
-                setStatus(true);
-            }
-        } catch (e) {
-            console.warn('SSE parse error:', e);
-        }
-    };
-
-    eventSource.onerror = () => {
-        console.log('SSE connection lost, falling back to polling');
-        eventSource.close();
-        eventSource = null;
-    };
+    // Disabled - use polling instead
+    return;
 }
 
 // Disconnect SSE
@@ -310,6 +289,65 @@ async function copyToClipboard(text, event) {
     }
 }
 
+// Aircraft photo cache using localStorage
+const PHOTO_CACHE_KEY = 'avgeek_aircraft_photos';
+const PHOTO_CACHE_TTL = 7 * 24 * 60 * 60 * 1000; // 7 days
+
+function getPhotoCache() {
+    try {
+        const cache = JSON.parse(localStorage.getItem(PHOTO_CACHE_KEY) || '{}');
+        // Clean expired entries
+        const now = Date.now();
+        for (const key in cache) {
+            if (cache[key].expires < now) {
+                delete cache[key];
+            }
+        }
+        return cache;
+    } catch (e) {
+        return {};
+    }
+}
+
+function setPhotoCache(reg, url) {
+    try {
+        const cache = getPhotoCache();
+        cache[reg] = { url, expires: Date.now() + PHOTO_CACHE_TTL };
+        localStorage.setItem(PHOTO_CACHE_KEY, JSON.stringify(cache));
+    } catch (e) {
+        console.warn('Could not cache photo:', e);
+    }
+}
+
+// Fetch aircraft photo from Planespotters.net
+async function fetchAircraftPhoto(registration) {
+    if (!registration) return null;
+
+    // Check cache first
+    const cache = getPhotoCache();
+    if (cache[registration]) {
+        return cache[registration].url;
+    }
+
+    try {
+        const response = await fetch(`https://api.planespotters.net/pub/photos/reg/${registration}`);
+        if (!response.ok) return null;
+        const data = await response.json();
+
+        if (data.photos && data.photos.length > 0 && data.photos[0].thumbnail_large) {
+            const url = data.photos[0].thumbnail_large.src;
+            setPhotoCache(registration, url);
+            return url;
+        }
+        // Cache null result too (no photo available)
+        setPhotoCache(registration, '');
+        return null;
+    } catch (e) {
+        console.warn('Photo fetch error:', e);
+        return null;
+    }
+}
+
 // Show toast notification
 function showToast(message) {
     // Remove existing toast
@@ -410,8 +448,15 @@ function renderFlightCard(arrival) {
     const airlineCode = (arrival.flight || '').match(/^[A-Z]{2,3}/)?.[0] || '';
     const logoUrl = airlineCode ? `https://pics.avs.io/60/60/${airlineCode}.png` : '';
 
+    // Generate unique ID for photo element
+    const photoId = `photo-${(arrival.flight || '').replace(/[^a-zA-Z0-9]/g, '')}`;
+
     return `
-        <div class="${cardClass}" ${clickHandler}>
+        <div class="${cardClass}" ${clickHandler} data-registration="${arrival.registration || ''}">
+            <div class="aircraft-photo-container">
+                <img id="${photoId}" class="aircraft-photo" alt="" style="display: none;">
+                <span class="aircraft-type-below">${typeName}</span>
+            </div>
             <div class="flight-header">
                 <div class="flight-route">
                     <span class="route-from">From</span>
@@ -419,7 +464,6 @@ function renderFlightCard(arrival) {
                     <span class="origin-name">${arrival.originName || ''}</span>
                 </div>
                 <div class="flight-meta">
-                    <span class="aircraft-type">${typeName}</span>
                     ${statusBadgeHtml}
                 </div>
             </div>
@@ -451,6 +495,38 @@ function renderFlightCard(arrival) {
 // Track current displayed flights for smart updates
 let displayedFlightIds = [];
 
+// Load aircraft photos after cards render
+function loadAircraftPhotos(arrivals) {
+    arrivals.forEach(arrival => {
+        if (!arrival.registration) return;
+
+        const photoId = `photo-${(arrival.flight || '').replace(/[^a-zA-Z0-9]/g, '')}`;
+        const photoEl = document.getElementById(photoId);
+        if (!photoEl) return;
+
+        // Check cache synchronously for instant display
+        const cache = getPhotoCache();
+        if (cache[arrival.registration]) {
+            const url = cache[arrival.registration].url;
+            if (url) {
+                photoEl.src = url;
+                photoEl.style.display = 'block';
+                photoEl.onload = () => photoEl.classList.add('loaded');
+            }
+            return;
+        }
+
+        // Fetch async
+        fetchAircraftPhoto(arrival.registration).then(url => {
+            if (url && document.getElementById(photoId)) {
+                photoEl.src = url;
+                photoEl.style.display = 'block';
+                photoEl.onload = () => photoEl.classList.add('loaded');
+            }
+        });
+    });
+}
+
 // Update cards in place without full re-render
 function updateCardsInPlace(container, sorted) {
     const newFlightIds = sorted.map(a => a.flightId || a.flight);
@@ -466,6 +542,9 @@ function updateCardsInPlace(container, sorted) {
         setTimeout(() => {
             container.innerHTML = sorted.map(renderFlightCard).join('');
             displayedFlightIds = newFlightIds;
+
+            // Load aircraft photos
+            loadAircraftPhotos(sorted);
 
             // Fade back in
             setTimeout(() => {
@@ -850,6 +929,9 @@ async function openFlightModal(flightId, flightNumber) {
     const modalTitle = document.getElementById('modal-flight-number');
     const modalBody = document.getElementById('modal-body');
 
+    // Store flight ID for real-time updates
+    currentModalFlightId = flightId;
+
     modalTitle.textContent = flightNumber || 'Flight Details';
     modal.classList.add('active');
     document.body.style.overflow = 'hidden';
@@ -886,6 +968,13 @@ function closeFlightModal(event) {
         miniMap.remove();
         miniMap = null;
     }
+
+    // Clear position update interval
+    if (modalUpdateInterval) {
+        clearInterval(modalUpdateInterval);
+        modalUpdateInterval = null;
+    }
+    currentModalFlightId = null;
 }
 
 function formatDuration(departureTs, arrivalTs) {
@@ -923,6 +1012,10 @@ function renderFlightModal(data) {
     const arrivalTime = data.arrivalTime ? formatTime(data.arrivalTime) : '-';
     const vspeedClass = data.verticalSpeed > 100 ? 'positive' : data.verticalSpeed < -100 ? 'negative' : '';
 
+    // Map below route
+    const hasTrail = data.trail && data.trail.length > 0;
+    const mapHtml = hasTrail ? '<div id="modal-mini-map" class="modal-mini-map"></div>' : '';
+
     modalBody.innerHTML = `
         <div class="modal-route">
             <div class="modal-route-airport">
@@ -935,6 +1028,10 @@ function renderFlightModal(data) {
                 <div class="modal-route-name">${data.destination || ''}</div>
             </div>
         </div>
+
+        ${mapHtml}
+
+        <img id="modal-aircraft-photo" class="modal-aircraft-photo" style="display: none;" alt="">
 
         <div class="modal-section">
             <div class="modal-section-title">Aircraft</div>
@@ -963,19 +1060,19 @@ function renderFlightModal(data) {
             <div class="modal-grid">
                 <div class="modal-item">
                     <span class="modal-label">Altitude</span>
-                    <span class="modal-value">${formatAltitude(data.altitude)}</span>
+                    <span class="modal-value" id="modal-altitude">${formatAltitude(data.altitude)}</span>
                 </div>
                 <div class="modal-item">
                     <span class="modal-label">Speed</span>
-                    <span class="modal-value">${formatSpeed(data.speed)}</span>
+                    <span class="modal-value" id="modal-speed">${formatSpeed(data.speed)}</span>
                 </div>
                 <div class="modal-item">
                     <span class="modal-label">Heading</span>
-                    <span class="modal-value">${formatHeading(data.heading)}</span>
+                    <span class="modal-value" id="modal-heading">${formatHeading(data.heading)}</span>
                 </div>
                 <div class="modal-item">
                     <span class="modal-label">Vertical Speed</span>
-                    <span class="modal-value ${vspeedClass}">${formatVerticalSpeed(data.verticalSpeed)}</span>
+                    <span class="modal-value ${vspeedClass}" id="modal-vspeed">${formatVerticalSpeed(data.verticalSpeed)}</span>
                 </div>
             </div>
         </div>
@@ -1001,13 +1098,82 @@ function renderFlightModal(data) {
                 </div>
             </div>
         </div>
-
-        ${data.trail && data.trail.length > 0 && typeof initMiniMap === 'function' ? '<div id="modal-mini-map" class="modal-mini-map"></div>' : ''}
     `;
 
-    // Initialize mini map if map mode is enabled
-    if (data.trail && data.trail.length > 0 && typeof initMiniMap === 'function') {
+    // Initialize mini map with 50nm zoom around aircraft
+    if (hasTrail) {
         initMiniMap(data);
+    }
+
+    // Load aircraft photo
+    if (data.registration) {
+        fetchAircraftPhoto(data.registration).then(url => {
+            const photoEl = document.getElementById('modal-aircraft-photo');
+            if (url && photoEl) {
+                photoEl.src = url;
+                photoEl.style.display = 'block';
+            }
+        });
+    }
+
+    // Start real-time position updates every 1 second
+    startModalPositionUpdates(currentModalFlightId);
+}
+
+// Real-time position updates for modal (every 1 second)
+function startModalPositionUpdates(flightId) {
+    if (modalUpdateInterval) {
+        clearInterval(modalUpdateInterval);
+    }
+
+    modalUpdateInterval = setInterval(async () => {
+        if (!currentModalFlightId || currentModalFlightId !== flightId) {
+            clearInterval(modalUpdateInterval);
+            return;
+        }
+
+        try {
+            const response = await fetch(`/api/flight-details?id=${flightId}`);
+            if (!response.ok) return;
+            const data = await response.json();
+
+            // Update position values
+            const altEl = document.getElementById('modal-altitude');
+            const speedEl = document.getElementById('modal-speed');
+            const headingEl = document.getElementById('modal-heading');
+            const vspeedEl = document.getElementById('modal-vspeed');
+
+            if (altEl) altEl.textContent = formatAltitude(data.altitude);
+            if (speedEl) speedEl.textContent = formatSpeed(data.speed);
+            if (headingEl) headingEl.textContent = formatHeading(data.heading);
+            if (vspeedEl) {
+                vspeedEl.textContent = formatVerticalSpeed(data.verticalSpeed);
+                vspeedEl.className = 'modal-value';
+                if (data.verticalSpeed > 100) vspeedEl.classList.add('positive');
+                else if (data.verticalSpeed < -100) vspeedEl.classList.add('negative');
+            }
+
+            // Update plane marker position on mini map
+            if (miniMap && data.lat && data.lon) {
+                updateMiniMapPlane(data.lat, data.lon, data.heading);
+            }
+        } catch (e) {
+            console.warn('Modal update error:', e);
+        }
+    }, 1000);
+}
+
+// Track mini map plane marker for updates
+let miniMapPlaneMarker = null;
+
+function updateMiniMapPlane(lat, lon, heading) {
+    if (!miniMap) return;
+
+    if (miniMapPlaneMarker) {
+        miniMapPlaneMarker.setLatLng([lat, lon]);
+        // Update rotation
+        const icon = createPlaneIcon(heading, true);
+        miniMapPlaneMarker.setIcon(icon);
     }
 }
 
@@ -1195,19 +1361,31 @@ function updateMapMarkers() {
         marker.bindPopup(popupContent);
         mapMarkers.push(marker);
 
-        // Draw path line from origin to current position
+        // Draw path line from origin to current position using great circle (geodesic)
         const originCoords = AIRPORT_COORDS[flight.origin];
         if (originCoords) {
-            const pathLine = L.polyline(
-                [originCoords, [flight.lat, flight.lon]],
-                {
-                    color: isWidebody ? '#06b6d4' : '#f59e0b',
-                    weight: 1.5,
-                    opacity: 0.3,
-                    dashArray: '5, 10',
-                    className: 'flight-path-line'
-                }
-            ).addTo(map);
+            const pathOptions = {
+                color: isWidebody ? '#06b6d4' : '#f59e0b',
+                weight: 1.5,
+                opacity: 0.3,
+                dashArray: '5, 10',
+                className: 'flight-path-line'
+            };
+
+            let pathLine;
+            // Use geodesic for proper great circle display (curves over Arctic for DXB->SFO etc)
+            if (typeof L.geodesic !== 'undefined') {
+                pathLine = L.geodesic([originCoords, [flight.lat, flight.lon]], {
+                    ...pathOptions,
+                    steps: 50 // Smooth curve
+                }).addTo(map);
+            } else {
+                // Fallback to straight line
+                pathLine = L.polyline(
+                    [originCoords, [flight.lat, flight.lon]],
+                    pathOptions
+                ).addTo(map);
+            }
             flightPaths.push(pathLine);
         }
     });
@@ -1251,7 +1429,7 @@ function setMapView(view) {
     }
 }
 
-// Mini map for modal
+// Mini map for modal - 50nm zoom around aircraft with trail
 function initMiniMap(data) {
     const miniMapEl = document.getElementById('modal-mini-map');
     if (!miniMapEl || !data.trail || data.trail.length === 0) return;
@@ -1261,9 +1439,10 @@ function initMiniMap(data) {
         miniMap.remove();
         miniMap = null;
     }
+    miniMapPlaneMarker = null;
 
     miniMap = L.map('modal-mini-map', {
-        zoomControl: false,
+        zoomControl: true,
         attributionControl: false
     });
 
@@ -1271,51 +1450,60 @@ function initMiniMap(data) {
         maxZoom: 19
     }).addTo(miniMap);
 
-    // Draw flight trail - filter out invalid coordinates
+    // Draw flight trail using actual trail data - filter out invalid coordinates
     const trailCoords = data.trail
         .filter(p => p && Array.isArray(p) && p[0] != null && p[1] != null && !isNaN(p[0]) && !isNaN(p[1]))
         .map(p => [p[0], p[1]]);
 
     if (trailCoords.length > 1) {
-        const polyline = L.polyline(trailCoords, {
-            color: '#06b6d4',
-            weight: 3,
-            opacity: 0.8
-        }).addTo(miniMap);
-
-        // Add current position marker
-        if (data.lat && data.lon) {
-            const planeIcon = createPlaneIcon(data.heading, true);
-            L.marker([data.lat, data.lon], { icon: planeIcon }).addTo(miniMap);
+        // Use Leaflet.Geodesic for great circle display if available
+        if (typeof L.geodesic !== 'undefined') {
+            L.geodesic(trailCoords, {
+                color: '#06b6d4',
+                weight: 3,
+                opacity: 0.8,
+                steps: 50
+            }).addTo(miniMap);
+        } else {
+            // Fallback to regular polyline
+            L.polyline(trailCoords, {
+                color: '#06b6d4',
+                weight: 3,
+                opacity: 0.8
+            }).addTo(miniMap);
         }
+    }
 
-        // Add destination marker
+    // Add current position marker (tracked for real-time updates)
+    if (data.lat && data.lon) {
+        const planeIcon = createPlaneIcon(data.heading, true);
+        miniMapPlaneMarker = L.marker([data.lat, data.lon], { icon: planeIcon }).addTo(miniMap);
+
+        // Add destination airport marker
         const destCoords = AIRPORT_COORDS[data.destinationCode];
         if (destCoords) {
             L.marker(destCoords, {
                 icon: L.divIcon({
-                    className: 'airport-marker',
-                    html: '<span style="font-size: 16px;">🛬</span>',
-                    iconSize: [16, 16],
-                    iconAnchor: [8, 8]
+                    className: 'airport-label',
+                    html: `<span>${data.destinationCode}</span>`,
+                    iconSize: [40, 20],
+                    iconAnchor: [20, 10]
                 })
             }).addTo(miniMap);
         }
 
-        // Fit bounds with padding
-        try {
-            miniMap.fitBounds(polyline.getBounds(), { padding: [30, 30] });
-        } catch (e) {
-            // Fallback to current position if bounds fail
-            if (data.lat && data.lon) {
-                miniMap.setView([data.lat, data.lon], 7);
-            }
-        }
-    } else if (data.lat && data.lon) {
-        // No trail but have position - show plane location
-        const planeIcon = createPlaneIcon(data.heading, true);
-        L.marker([data.lat, data.lon], { icon: planeIcon }).addTo(miniMap);
-        miniMap.setView([data.lat, data.lon], 7);
+        // Zoom to ~50nm around the aircraft
+        // 50nm ≈ 0.83° at equator, so use ±0.42° for the bounding box
+        const NM_50_DEGREES = 0.42;
+        const bounds = [
+            [data.lat - NM_50_DEGREES, data.lon - NM_50_DEGREES],
+            [data.lat + NM_50_DEGREES, data.lon + NM_50_DEGREES]
+        ];
+        miniMap.fitBounds(bounds);
+    } else if (trailCoords.length > 0) {
+        // No current position, fit to trail
+        const bounds = L.latLngBounds(trailCoords);
+        miniMap.fitBounds(bounds, { padding: [20, 20] });
     }
 }
 
