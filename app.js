@@ -47,9 +47,13 @@ let allArrivals = [];
 let currentFilter = savedPrefs.filter || 'upcoming';
 let currentAirport = savedPrefs.airport || 'SFO';
 let lastRefreshTime = Date.now();
+let lastPositionsTime = 0;
 let isLoading = false;
 let approachMode = false;
-let refreshTimer = null;
+let scheduleTimer = null;
+let positionsTimer = null;
+let tickTimer = null;
+let weatherTimer = null;
 let showAllAircraft = savedPrefs.showAllAircraft || false;
 let currentView = savedPrefs.view || 'list';
 let map = null;
@@ -62,8 +66,14 @@ let isFirstLoad = true; // Track if this is initial load
 let mapInitialized = false; // Track if map has been initialized
 let modalUpdateInterval = null; // Track modal position update interval
 let currentModalFlightId = null; // Track which flight is in modal
+let etaCountdownNodes = [];
+let photoObserver = null;
+const photoFetchInFlight = new Set();
+let mapLibsLoaded = false;
+let mapLibsPromise = null;
 const NORMAL_INTERVAL = 60; // seconds
-const APPROACH_INTERVAL = 1; // seconds when aircraft on approach
+const POSITION_INTERVAL = 10; // seconds
+const APPROACH_POSITION_INTERVAL = 5; // seconds when aircraft on approach
 const APPROACH_ALTITUDE = 30000; // feet
 
 // Airport coordinates for map centering
@@ -146,6 +156,43 @@ async function fetchSchedule(fast = false) {
         console.log(`Using cached data (${data.cache_age}s old)`);
     }
     return data.arrivals || [];
+}
+
+// Fetch live positions for currently airborne flights
+async function fetchPositions() {
+    if (document.hidden) return;
+
+    const liveFlights = allArrivals.filter(a => a.live && a.flightId);
+    if (liveFlights.length === 0) return;
+
+    const ids = liveFlights.slice(0, 60).map(a => a.flightId).join(',');
+
+    try {
+        const response = await fetch(`/api/positions?ids=${encodeURIComponent(ids)}`);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const data = await response.json();
+        const positions = data.positions || {};
+
+        let updated = false;
+        allArrivals.forEach(arrival => {
+            const pos = positions[arrival.flightId];
+            if (!pos) return;
+            if (pos.alt != null) arrival.altitude = pos.alt;
+            if (pos.lat != null) arrival.lat = pos.lat;
+            if (pos.lon != null) arrival.lon = pos.lon;
+            if (pos.heading != null) arrival.heading = pos.heading;
+            if (pos.live_eta) arrival.eta = pos.live_eta;
+            updated = true;
+        });
+
+        if (updated) {
+            lastPositionsTime = Date.now();
+            updateApproachMode();
+            updateDisplay();
+        }
+    } catch (error) {
+        console.warn('Position fetch error:', error);
+    }
 }
 
 // SSE disabled - was blocking single-threaded server
@@ -412,9 +459,9 @@ function renderFlightCard(arrival) {
     const photoId = `photo-${(arrival.flight || '').replace(/[^a-zA-Z0-9]/g, '')}`;
 
     return `
-        <div class="${cardClass}" ${clickHandler} data-registration="${arrival.registration || ''}">
+        <div class="${cardClass}" ${clickHandler} data-registration="${arrival.registration || ''}" data-flight-id="${arrival.flightId || ''}">
             <div class="aircraft-photo-container">
-                <img id="${photoId}" class="aircraft-photo" alt="" style="display: none;">
+                <img id="${photoId}" class="aircraft-photo" alt="" data-reg="${arrival.registration || ''}" loading="lazy" decoding="async" width="120" height="95" style="display: none;">
                 <span class="aircraft-type-below">${typeName}</span>
             </div>
             <div class="flight-header">
@@ -428,7 +475,7 @@ function renderFlightCard(arrival) {
                 </div>
             </div>
             <div class="flight-airline">
-                ${logoUrl ? `<img src="${logoUrl}" alt="${airlineCode}" class="airline-logo" onerror="this.style.display='none'">` : ''}
+                ${logoUrl ? `<img src="${logoUrl}" alt="${airlineCode}" class="airline-logo" loading="lazy" decoding="async" width="36" height="36" onerror="this.style.display='none'">` : ''}
                 <div class="airline-info">
                     <span class="airline-name">${shortAirline || 'Unknown Airline'}</span>
                     <span class="flight-number copyable" onclick="copyToClipboard('${arrival.flight}', event)" title="Click to copy">${arrival.flight}</span>
@@ -454,35 +501,60 @@ function renderFlightCard(arrival) {
 // Track current displayed flights for smart updates
 let displayedFlightIds = [];
 
-// Load aircraft photos after cards render
-function loadAircraftPhotos(arrivals) {
-    arrivals.forEach(arrival => {
-        if (!arrival.registration) return;
+// Lazy-load aircraft photos when cards enter the viewport
+function setupPhotoObserver() {
+    if (photoObserver) {
+        photoObserver.disconnect();
+    }
 
-        const photoId = `photo-${(arrival.flight || '').replace(/[^a-zA-Z0-9]/g, '')}`;
-        const photoEl = document.getElementById(photoId);
-        if (!photoEl) return;
-
-        // Check cache synchronously for instant display
-        const cache = getPhotoCache();
-        if (cache[arrival.registration]) {
-            const url = cache[arrival.registration].url;
-            if (url) {
-                photoEl.src = url;
-                photoEl.style.display = 'block';
-                photoEl.onload = () => photoEl.classList.add('loaded');
-            }
-            return;
-        }
-
-        // Fetch async
-        fetchAircraftPhoto(arrival.registration).then(url => {
-            if (url && document.getElementById(photoId)) {
-                photoEl.src = url;
-                photoEl.style.display = 'block';
-                photoEl.onload = () => photoEl.classList.add('loaded');
-            }
+    photoObserver = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+            if (!entry.isIntersecting) return;
+            const img = entry.target;
+            photoObserver.unobserve(img);
+            loadPhotoForImage(img);
         });
+    }, { rootMargin: '200px 0px' });
+
+    document.querySelectorAll('.aircraft-photo').forEach(img => {
+        if (img.dataset.reg) {
+            photoObserver.observe(img);
+        }
+    });
+}
+
+function applyPhotoToRegistration(registration, url) {
+    const photos = document.querySelectorAll(`img.aircraft-photo[data-reg="${registration}"]`);
+    photos.forEach(photoEl => {
+        if (!photoEl) return;
+        photoEl.src = url;
+        photoEl.style.display = 'block';
+        photoEl.onload = () => photoEl.classList.add('loaded');
+    });
+}
+
+function loadPhotoForImage(img) {
+    const registration = img.dataset.reg;
+    if (!registration) return;
+
+    // Check cache for instant display
+    const cache = getPhotoCache();
+    if (cache[registration]) {
+        const url = cache[registration].url;
+        if (url) {
+            applyPhotoToRegistration(registration, url);
+        }
+        return;
+    }
+
+    if (photoFetchInFlight.has(registration)) return;
+    photoFetchInFlight.add(registration);
+
+    fetchAircraftPhoto(registration).then(url => {
+        photoFetchInFlight.delete(registration);
+        if (url) {
+            applyPhotoToRegistration(registration, url);
+        }
     });
 }
 
@@ -502,8 +574,9 @@ function updateCardsInPlace(container, sorted) {
             container.innerHTML = sorted.map(renderFlightCard).join('');
             displayedFlightIds = newFlightIds;
 
-            // Load aircraft photos
-            loadAircraftPhotos(sorted);
+            // Cache countdown nodes and lazy-load photos
+            etaCountdownNodes = Array.from(container.querySelectorAll('.eta-countdown'));
+            setupPhotoObserver();
 
             // Fade back in
             setTimeout(() => {
@@ -624,6 +697,10 @@ function updateDisplay() {
                 <p>${msg}</p>
             </div>
         `;
+        etaCountdownNodes = [];
+        if (photoObserver) {
+            photoObserver.disconnect();
+        }
     } else {
         // Smart update: only re-render if data changed significantly
         updateCardsInPlace(container, sorted);
@@ -641,21 +718,36 @@ function hasApproachingAircraft() {
     return widebodies.some(a => a.live && a.altitude && a.altitude < APPROACH_ALTITUDE);
 }
 
-// Get current refresh interval
-function getRefreshInterval() {
-    return approachMode ? APPROACH_INTERVAL : NORMAL_INTERVAL;
+function hasLiveFlights() {
+    return allArrivals.some(a => a.live && a.flightId);
+}
+
+function getPositionInterval() {
+    return approachMode ? APPROACH_POSITION_INTERVAL : POSITION_INTERVAL;
+}
+
+function updateApproachMode() {
+    const wasApproachMode = approachMode;
+    approachMode = hasApproachingAircraft();
+    if (approachMode !== wasApproachMode) {
+        console.log(approachMode ? 'Approach mode: ON (aircraft < 30,000 ft)' : 'Approach mode: OFF');
+        startPositionPolling();
+    }
 }
 
 // Update countdown every second
 function tick() {
+    if (document.hidden) return;
     const countdown = document.getElementById('countdown');
     const elapsed = Math.floor((Date.now() - lastRefreshTime) / 1000);
-    const interval = getRefreshInterval();
+    const interval = NORMAL_INTERVAL;
     const remaining = Math.max(0, interval - elapsed);
-    countdown.textContent = approachMode ? `${remaining} (LIVE)` : remaining;
+    const showLive = approachMode && lastPositionsTime > 0;
+    countdown.textContent = showLive ? `${remaining} (LIVE)` : remaining;
 
     // Update all ETA countdowns
-    document.querySelectorAll('.eta-countdown').forEach(el => {
+    const nodes = etaCountdownNodes.length > 0 ? etaCountdownNodes : document.querySelectorAll('.eta-countdown');
+    nodes.forEach(el => {
         const eta = parseInt(el.dataset.eta);
         if (eta) {
             el.textContent = formatETA(eta);
@@ -672,6 +764,19 @@ function tick() {
             }
         }
     });
+}
+
+function startTick() {
+    if (!tickTimer) {
+        tickTimer = setInterval(tick, 1000);
+    }
+}
+
+function stopTick() {
+    if (tickTimer) {
+        clearInterval(tickTimer);
+        tickTimer = null;
+    }
 }
 
 // Show loading state
@@ -724,6 +829,10 @@ function showSkeletonLoading() {
 
     html += '</div>';
     container.innerHTML = html;
+    etaCountdownNodes = [];
+    if (photoObserver) {
+        photoObserver.disconnect();
+    }
 }
 
 // Update status indicator
@@ -735,19 +844,43 @@ function setStatus(isLive) {
     }
 }
 
-// Schedule next refresh based on approach mode
-function scheduleNextRefresh() {
-    if (refreshTimer) clearTimeout(refreshTimer);
-
-    const wasApproachMode = approachMode;
-    approachMode = hasApproachingAircraft();
-
-    if (approachMode !== wasApproachMode) {
-        console.log(approachMode ? 'Approach mode: ON (aircraft < 30,000 ft)' : 'Approach mode: OFF');
+function startPositionPolling() {
+    if (positionsTimer) {
+        clearInterval(positionsTimer);
+        positionsTimer = null;
     }
 
-    const interval = getRefreshInterval();
-    refreshTimer = setTimeout(refresh, interval * 1000);
+    if (!hasLiveFlights()) return;
+
+    const interval = getPositionInterval();
+    fetchPositions();
+    positionsTimer = setInterval(fetchPositions, interval * 1000);
+}
+
+function stopPositionPolling() {
+    if (positionsTimer) {
+        clearInterval(positionsTimer);
+        positionsTimer = null;
+    }
+}
+
+function startWeatherPolling() {
+    if (!weatherTimer) {
+        weatherTimer = setInterval(fetchWeather, 5 * 60 * 1000);
+    }
+}
+
+function stopWeatherPolling() {
+    if (weatherTimer) {
+        clearInterval(weatherTimer);
+        weatherTimer = null;
+    }
+}
+
+// Schedule next refresh for the schedule data
+function scheduleNextRefresh() {
+    if (scheduleTimer) clearTimeout(scheduleTimer);
+    scheduleTimer = setTimeout(refresh, NORMAL_INTERVAL * 1000);
 }
 
 // Main refresh
@@ -767,6 +900,11 @@ async function refresh() {
         allArrivals = await fetchSchedule(useFastMode);
         updateDisplay();
         lastRefreshTime = Date.now();
+        updateApproachMode();
+        startPositionPolling();
+        if (hasLiveFlights()) {
+            fetchPositions();
+        }
         setStatus(true);
 
         // After first successful load, try to connect SSE for real-time updates
@@ -823,6 +961,7 @@ function selectAirport(airport) {
 
     // Disconnect SSE and reconnect for new airport
     disconnectSSE();
+    stopPositionPolling();
 
     // Update map center if in map view
     if (map) {
@@ -834,6 +973,7 @@ function selectAirport(airport) {
     // Clear arrivals and displayed IDs to trigger fresh render
     allArrivals = [];
     displayedFlightIds = [];
+    lastPositionsTime = 0;
     refresh();
     fetchWeather();
 
@@ -879,6 +1019,7 @@ document.querySelectorAll('.type-btn').forEach(btn => {
         updateTitle();
         savePreferences();
         updateDisplay();
+        updateApproachMode();
     });
 });
 
@@ -906,6 +1047,14 @@ async function openFlightModal(flightId, flightNumber) {
         const response = await fetch(`/api/flight-details?id=${flightId}`);
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const data = await response.json();
+        if (data && data.error) {
+            modalBody.innerHTML = `
+                <div class="modal-loading">
+                    <p style="color: #ef4444;">Flight details unavailable.</p>
+                </div>
+            `;
+            return;
+        }
         renderFlightModal(data);
     } catch (error) {
         modalBody.innerHTML = `
@@ -990,7 +1139,7 @@ function renderFlightModal(data) {
 
         ${mapHtml}
 
-        <img id="modal-aircraft-photo" class="modal-aircraft-photo" style="display: none;" alt="">
+        <img id="modal-aircraft-photo" class="modal-aircraft-photo" style="display: none;" alt="" loading="lazy" decoding="async">
 
         <div class="modal-section">
             <div class="modal-section-title">Aircraft</div>
@@ -1195,9 +1344,69 @@ document.addEventListener('keydown', (e) => {
 });
 
 // Map functions
+function loadStylesheet(href, id) {
+    return new Promise((resolve, reject) => {
+        if (id && document.getElementById(id)) {
+            resolve();
+            return;
+        }
+        const link = document.createElement('link');
+        link.rel = 'stylesheet';
+        link.href = href;
+        if (id) link.id = id;
+        link.onload = () => resolve();
+        link.onerror = () => reject(new Error(`Failed to load stylesheet: ${href}`));
+        document.head.appendChild(link);
+    });
+}
+
+function loadScript(src, id) {
+    return new Promise((resolve, reject) => {
+        if (id && document.getElementById(id)) {
+            resolve();
+            return;
+        }
+        const script = document.createElement('script');
+        script.src = src;
+        script.defer = true;
+        if (id) script.id = id;
+        script.onload = () => resolve();
+        script.onerror = () => reject(new Error(`Failed to load script: ${src}`));
+        document.head.appendChild(script);
+    });
+}
+
+function loadMapLibraries() {
+    if (mapLibsLoaded || (window.L && window.L.map)) {
+        mapLibsLoaded = true;
+        return Promise.resolve();
+    }
+    if (mapLibsPromise) return mapLibsPromise;
+
+    mapLibsPromise = Promise.all([
+        loadStylesheet('https://unpkg.com/leaflet@1.9.4/dist/leaflet.css', 'leaflet-css'),
+        loadScript('https://unpkg.com/leaflet@1.9.4/dist/leaflet.js', 'leaflet-js')
+    ])
+        .then(() => loadScript('https://cdn.jsdelivr.net/npm/leaflet.geodesic@2.7.1/dist/leaflet.geodesic.umd.min.js', 'leaflet-geodesic'))
+        .then(() => {
+            mapLibsLoaded = true;
+        })
+        .catch((error) => {
+            console.warn(error);
+            throw error;
+        });
+
+    return mapLibsPromise;
+}
+
 function initMap() {
     if (map) return; // Already initialized
+    if (!window.L) return;
 
+    const mapContainer = document.getElementById('map-container');
+    if (mapContainer) {
+        mapContainer.innerHTML = '';
+    }
     const coords = AIRPORT_COORDS[currentAirport] || [37.6213, -122.3790];
     map = L.map('map-container').setView(coords, 6);
 
@@ -1368,12 +1577,23 @@ function setMapView(view) {
     if (view === 'map') {
         mapContainer.classList.add('active');
         flightsContainer.classList.add('hidden');
-        initMap();
-        updateMapMarkers();
-        // Center on airport with wider zoom
-        const coords = AIRPORT_COORDS[currentAirport] || [37.6213, -122.3790];
-        map.setView(coords, 6);
-        setTimeout(() => map.invalidateSize(), 100);
+        if (!map) {
+            mapContainer.innerHTML = '<div class="loading"><div class="spinner"></div><p>Loading map...</p></div>';
+        }
+        loadMapLibraries()
+            .then(() => {
+                initMap();
+                updateMapMarkers();
+                // Center on airport with wider zoom
+                const coords = AIRPORT_COORDS[currentAirport] || [37.6213, -122.3790];
+                if (map) {
+                    map.setView(coords, 6);
+                    setTimeout(() => map.invalidateSize(), 100);
+                }
+            })
+            .catch(() => {
+                mapContainer.innerHTML = '<div class="no-flights"><p>Map failed to load.</p></div>';
+            });
     } else {
         mapContainer.classList.remove('active');
         flightsContainer.classList.remove('hidden');
@@ -1385,77 +1605,79 @@ function initMiniMap(data) {
     const miniMapEl = document.getElementById('modal-mini-map');
     if (!miniMapEl || !data.trail || data.trail.length === 0) return;
 
-    // Clean up previous mini map instance
-    if (miniMap) {
-        miniMap.remove();
-        miniMap = null;
-    }
-    miniMapPlaneMarker = null;
+    loadMapLibraries().then(() => {
+        // Clean up previous mini map instance
+        if (miniMap) {
+            miniMap.remove();
+            miniMap = null;
+        }
+        miniMapPlaneMarker = null;
 
-    miniMap = L.map('modal-mini-map', {
-        zoomControl: true,
-        attributionControl: false
+        miniMap = L.map('modal-mini-map', {
+            zoomControl: true,
+            attributionControl: false
+        });
+
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+            maxZoom: 19
+        }).addTo(miniMap);
+
+        // Draw flight trail using actual trail data - filter out invalid coordinates
+        const trailCoords = data.trail
+            .filter(p => p && Array.isArray(p) && p[0] != null && p[1] != null && !isNaN(p[0]) && !isNaN(p[1]))
+            .map(p => [p[0], p[1]]);
+
+        if (trailCoords.length > 1) {
+            // Use Leaflet.Geodesic for great circle display if available
+            if (typeof L.geodesic !== 'undefined') {
+                L.geodesic(trailCoords, {
+                    color: '#06b6d4',
+                    weight: 3,
+                    opacity: 0.8,
+                    steps: 50
+                }).addTo(miniMap);
+            } else {
+                // Fallback to regular polyline
+                L.polyline(trailCoords, {
+                    color: '#06b6d4',
+                    weight: 3,
+                    opacity: 0.8
+                }).addTo(miniMap);
+            }
+        }
+
+        // Add current position marker (tracked for real-time updates)
+        if (data.lat && data.lon) {
+            const planeIcon = createPlaneIcon(data.heading, true);
+            miniMapPlaneMarker = L.marker([data.lat, data.lon], { icon: planeIcon }).addTo(miniMap);
+
+            // Add destination airport marker
+            const destCoords = AIRPORT_COORDS[data.destinationCode];
+            if (destCoords) {
+                L.marker(destCoords, {
+                    icon: L.divIcon({
+                        className: 'airport-label',
+                        html: `<span>${data.destinationCode}</span>`,
+                        iconSize: [40, 20],
+                        iconAnchor: [20, 10]
+                    })
+                }).addTo(miniMap);
+            }
+
+            // Zoom to ~50nm around the aircraft
+            // 50nm ≈ 0.83° at equator, so use ±0.42° for the bounding box
+            const NM_50_DEGREES = 0.42;
+            const bounds = [
+                [data.lat - NM_50_DEGREES, data.lon - NM_50_DEGREES],
+                [data.lat + NM_50_DEGREES, data.lon + NM_50_DEGREES]
+            ];
+            miniMap.fitBounds(bounds);
+        } else if (trailCoords.length > 0) {
+            // No current position, fit to trail
+            const bounds = L.latLngBounds(trailCoords);
+            miniMap.fitBounds(bounds, { padding: [20, 20] });
+        }
     });
-
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-        maxZoom: 19
-    }).addTo(miniMap);
-
-    // Draw flight trail using actual trail data - filter out invalid coordinates
-    const trailCoords = data.trail
-        .filter(p => p && Array.isArray(p) && p[0] != null && p[1] != null && !isNaN(p[0]) && !isNaN(p[1]))
-        .map(p => [p[0], p[1]]);
-
-    if (trailCoords.length > 1) {
-        // Use Leaflet.Geodesic for great circle display if available
-        if (typeof L.geodesic !== 'undefined') {
-            L.geodesic(trailCoords, {
-                color: '#06b6d4',
-                weight: 3,
-                opacity: 0.8,
-                steps: 50
-            }).addTo(miniMap);
-        } else {
-            // Fallback to regular polyline
-            L.polyline(trailCoords, {
-                color: '#06b6d4',
-                weight: 3,
-                opacity: 0.8
-            }).addTo(miniMap);
-        }
-    }
-
-    // Add current position marker (tracked for real-time updates)
-    if (data.lat && data.lon) {
-        const planeIcon = createPlaneIcon(data.heading, true);
-        miniMapPlaneMarker = L.marker([data.lat, data.lon], { icon: planeIcon }).addTo(miniMap);
-
-        // Add destination airport marker
-        const destCoords = AIRPORT_COORDS[data.destinationCode];
-        if (destCoords) {
-            L.marker(destCoords, {
-                icon: L.divIcon({
-                    className: 'airport-label',
-                    html: `<span>${data.destinationCode}</span>`,
-                    iconSize: [40, 20],
-                    iconAnchor: [20, 10]
-                })
-            }).addTo(miniMap);
-        }
-
-        // Zoom to ~50nm around the aircraft
-        // 50nm ≈ 0.83° at equator, so use ±0.42° for the bounding box
-        const NM_50_DEGREES = 0.42;
-        const bounds = [
-            [data.lat - NM_50_DEGREES, data.lon - NM_50_DEGREES],
-            [data.lat + NM_50_DEGREES, data.lon + NM_50_DEGREES]
-        ];
-        miniMap.fitBounds(bounds);
-    } else if (trailCoords.length > 0) {
-        // No current position, fit to trail
-        const bounds = L.latLngBounds(trailCoords);
-        miniMap.fitBounds(bounds, { padding: [20, 20] });
-    }
 }
 
 // View toggle handlers
@@ -1667,11 +1889,20 @@ window.addEventListener('online', () => {
     setStatus(true);
     refresh();
     fetchWeather();
+    startTick();
+    startWeatherPolling();
+    startPositionPolling();
 });
 
 window.addEventListener('offline', () => {
     console.log('Network offline');
     setStatus(false);
+    stopPositionPolling();
+    stopWeatherPolling();
+    if (scheduleTimer) {
+        clearTimeout(scheduleTimer);
+        scheduleTimer = null;
+    }
     const indicator = document.getElementById('status-indicator');
     if (indicator) {
         indicator.textContent = 'Offline';
@@ -1685,19 +1916,25 @@ document.addEventListener('visibilitychange', () => {
     if (document.hidden) {
         wasHidden = true;
         console.log('Tab hidden - pausing updates');
-        if (refreshTimer) {
-            clearTimeout(refreshTimer);
-            refreshTimer = null;
+        stopTick();
+        stopPositionPolling();
+        stopWeatherPolling();
+        if (scheduleTimer) {
+            clearTimeout(scheduleTimer);
+            scheduleTimer = null;
         }
     } else if (wasHidden) {
         wasHidden = false;
         console.log('Tab visible - resuming updates');
+        startTick();
+        startWeatherPolling();
         // Refresh immediately if data is stale (> 1 minute old)
         const elapsed = Date.now() - lastRefreshTime;
         if (elapsed > 60000) {
             refresh();
         } else {
             scheduleNextRefresh();
+            startPositionPolling();
         }
     }
 });
@@ -1706,6 +1943,5 @@ document.addEventListener('visibilitychange', () => {
 initFromPreferences();
 refresh();
 fetchWeather();
-setInterval(tick, 1000);
-// Refresh weather every 5 minutes
-setInterval(fetchWeather, 5 * 60 * 1000);
+startTick();
+startWeatherPolling();

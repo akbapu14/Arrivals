@@ -349,14 +349,30 @@ def start_background_fetcher():
         background_thread.start()
 
 
+def fetch_clickhandler(flight_id, retries=2, backoff=0.5):
+    """Fetch clickhandler data with retry/backoff."""
+    last_error = None
+    for attempt in range(retries + 1):
+        try:
+            url = f"https://data-live.flightradar24.com/clickhandler/?flight={flight_id}"
+            req = urllib.request.Request(url, headers=HEADERS)
+            with urllib.request.urlopen(req, timeout=10) as response:
+                return json.loads(response.read())
+        except Exception as e:
+            last_error = e
+            if attempt < retries:
+                time.sleep(backoff * (2 ** attempt))
+    return None
+
+
 def fetch_flight_details(flight_id):
     """Fetch detailed flight info from FR24 clickhandler."""
     if not flight_id:
-        return None
-    url = f"https://data-live.flightradar24.com/clickhandler/?flight={flight_id}"
-    req = urllib.request.Request(url, headers=HEADERS)
-    with urllib.request.urlopen(req, timeout=10) as response:
-        data = json.loads(response.read())
+        return {'flightId': flight_id, 'error': 'Missing flight id'}
+
+    data = fetch_clickhandler(flight_id)
+    if not data:
+        return {'flightId': flight_id, 'error': 'Unable to fetch flight details'}
 
     trail = data.get('trail', [])
     aircraft = data.get('aircraft', {})
@@ -500,11 +516,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if not flight_id:
             self.send_error(400, "Missing flight id")
             return
-        try:
-            details = fetch_flight_details(flight_id)
-            self.send_json(details)
-        except Exception as e:
-            self.send_error(500, str(e))
+        details = fetch_flight_details(flight_id)
+        self.send_json(details)
 
     def get_weather(self, airport):
         """Get weather for airport."""

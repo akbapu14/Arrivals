@@ -1,0 +1,92 @@
+- generic [ref=e2]:
+  - banner [ref=e3]:
+    - heading "SFO Arrivals" [level=1] [ref=e4]
+    - paragraph [ref=e5]:
+      - text: Live data from FlightRadar24
+      - generic [ref=e6]: Live
+  - navigation "Airport selection" [ref=e7]:
+    - button "San Francisco International Airport" [ref=e8] [cursor=pointer]: SFO
+    - button "Los Angeles International Airport" [ref=e9] [cursor=pointer]: LAX
+    - button "John F. Kennedy International Airport" [ref=e10] [cursor=pointer]: JFK
+    - button "Newark Liberty International Airport" [ref=e11] [cursor=pointer]: EWR
+    - button "Dallas/Fort Worth International Airport" [ref=e12] [cursor=pointer]: DFW
+    - button "San Diego International Airport" [ref=e13] [cursor=pointer]: SAN
+    - textbox "Enter custom airport code" [ref=e14]:
+      - /placeholder: Other
+  - generic [ref=e15]:
+    - generic [ref=e16]:
+      - generic [ref=e17]: "19"
+      - generic [ref=e18]: Widebodies Today
+    - generic [ref=e19]:
+      - generic [ref=e20]: "14"
+      - generic [ref=e21]: In the Air
+    - generic [ref=e22]:
+      - generic [ref=e23]: "1"
+      - generic [ref=e24]: On Approach
+    - generic [ref=e25]:
+      - generic [ref=e26]: 9:12
+      - generic [ref=e27]: Next Arrival
+  - toolbar "Flight filters" [ref=e28]:
+    - group "Aircraft type filter" [ref=e29]:
+      - button "Widebodies" [pressed] [ref=e30] [cursor=pointer]
+      - button "All Aircraft" [ref=e31] [cursor=pointer]
+    - group "Flight status filter" [ref=e33]:
+      - button "Upcoming" [pressed] [ref=e34] [cursor=pointer]
+      - button "Landed" [ref=e35] [cursor=pointer]
+      - button "All" [ref=e36] [cursor=pointer]
+  - paragraph [ref=e37]:
+    - text: Updated 10:55:03 PM · Next in 51 (LIVE)s
+    - button "↻" [ref=e145] [cursor=pointer]
+    - text: · ⌨ Shortcuts
+  - group "View mode" [ref=e38]:
+    - button "List" [ref=e39] [cursor=pointer]
+    - button "Map" [active] [pressed] [ref=e40] [cursor=pointer]
+  - generic [ref=e646]:
+    - generic:
+      - generic:
+        - img
+      - generic:
+        - button "SFO" [ref=e648] [cursor=pointer]
+        - button "✈" [ref=e734] [cursor=pointer]:
+          - generic [ref=e735]: ✈
+        - button "✈" [ref=e736] [cursor=pointer]:
+          - generic [ref=e737]: ✈
+        - button "✈" [ref=e738] [cursor=pointer]:
+          - generic [ref=e739]: ✈
+        - button "✈" [ref=e740] [cursor=pointer]:
+          - generic [ref=e741]: ✈
+        - button "✈" [ref=e742] [cursor=pointer]:
+          - generic [ref=e743]: ✈
+        - button "✈" [ref=e744] [cursor=pointer]:
+          - generic [ref=e745]: ✈
+        - button "✈" [ref=e746] [cursor=pointer]:
+          - generic [ref=e747]: ✈
+        - button "✈" [ref=e748] [cursor=pointer]:
+          - generic [ref=e749]: ✈
+        - button "✈" [ref=e750] [cursor=pointer]:
+          - generic [ref=e751]: ✈
+        - button "✈" [ref=e752] [cursor=pointer]:
+          - generic [ref=e753]: ✈
+        - button "✈" [ref=e754] [cursor=pointer]:
+          - generic [ref=e755]: ✈
+        - button "✈" [ref=e756] [cursor=pointer]:
+          - generic [ref=e757]: ✈
+        - button "✈" [ref=e758] [cursor=pointer]:
+          - generic [ref=e759]: ✈
+        - button "✈" [ref=e760] [cursor=pointer]:
+          - generic [ref=e761]: ✈
+    - generic:
+      - generic [ref=e685]:
+        - button "Zoom in" [ref=e686] [cursor=pointer]: +
+        - button "Zoom out" [ref=e687] [cursor=pointer]: −
+      - generic [ref=e688]:
+        - link "Leaflet" [ref=e689] [cursor=pointer]:
+          - /url: https://leafletjs.com
+          - img [ref=e690]
+          - text: Leaflet
+        - text: "| ©"
+        - link "OpenStreetMap" [ref=e694] [cursor=pointer]:
+          - /url: https://www.openstreetmap.org/copyright
+        - text: ©
+        - link "CARTO" [ref=e695] [cursor=pointer]:
+          - /url: https://carto.com/

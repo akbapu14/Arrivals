@@ -4,6 +4,7 @@ from http.server import BaseHTTPRequestHandler
 import json
 import urllib.request
 import urllib.parse
+import time
 
 HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
@@ -25,12 +26,20 @@ class handler(BaseHTTPRequestHandler):
             self.wfile.write(json.dumps({'error': 'Missing flight id'}).encode())
             return
 
-        try:
-            url = f"https://data-live.flightradar24.com/clickhandler/?flight={flight_id}"
-            req = urllib.request.Request(url, headers=HEADERS)
-            with urllib.request.urlopen(req, timeout=10) as response:
-                data = json.loads(response.read())
+        data = None
+        last_error = None
+        for attempt in range(3):
+            try:
+                url = f"https://data-live.flightradar24.com/clickhandler/?flight={flight_id}"
+                req = urllib.request.Request(url, headers=HEADERS)
+                with urllib.request.urlopen(req, timeout=10) as response:
+                    data = json.loads(response.read())
+                break
+            except Exception as e:
+                last_error = e
+                time.sleep(0.5 * (2 ** attempt))
 
+        if data:
             # Extract relevant details
             trail = data.get('trail', [])
             aircraft = data.get('aircraft', {})
@@ -87,17 +96,15 @@ class handler(BaseHTTPRequestHandler):
                 'status': status.get('text'),
                 'trail': [[p.get('lat'), p.get('lng'), p.get('alt')] if isinstance(p, dict) else p[:3] for p in trail] if trail else []
             }
+        else:
+            result = {
+                'flightId': flight_id,
+                'error': f'Unable to fetch flight details: {last_error}'
+            }
 
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/json')
-            self.send_header('Access-Control-Allow-Origin', '*')
-            self.send_header('Cache-Control', 'public, max-age=10')
-            self.end_headers()
-            self.wfile.write(json.dumps(result).encode())
-
-        except Exception as e:
-            self.send_response(500)
-            self.send_header('Content-Type', 'application/json')
-            self.send_header('Access-Control-Allow-Origin', '*')
-            self.end_headers()
-            self.wfile.write(json.dumps({'error': str(e)}).encode())
+        self.send_response(200)
+        self.send_header('Content-Type', 'application/json')
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Cache-Control', 'public, max-age=10')
+        self.end_headers()
+        self.wfile.write(json.dumps(result).encode())
